@@ -6,6 +6,7 @@ from pathlib import Path
 
 from docx import Document
 from fastapi.testclient import TestClient
+import pytest
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -18,8 +19,13 @@ from app.services.session_store import session_store
 from scripts.run_batch_workflow import run_batch_workflow
 
 
-def test_batch_workflow_generates_localized_archive(tmp_path, monkeypatch):
-    template_path = create_template(tmp_path / "template.docx")
+def test_batch_workflow_generates_localized_archive(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    sample_template_path: Path,
+    sample_prompt: str,
+):
+    template_path = sample_template_path
     good_example_path = ROOT_DIR / "tests" / "fixtures" / "good_example.txt"
     bad_example_path = ROOT_DIR / "tests" / "fixtures" / "bad_example.txt"
 
@@ -84,7 +90,7 @@ def test_batch_workflow_generates_localized_archive(tmp_path, monkeypatch):
             template_path=template_path,
             good_example_paths=[good_example_path],
             bad_example_paths=[bad_example_path],
-            message="Create a compliance onboarding specification for regulated enterprise customers.",
+            message=sample_prompt,
             languages=["Spanish", "French"],
             client=client,
         )
@@ -113,13 +119,3 @@ def test_batch_workflow_generates_localized_archive(tmp_path, monkeypatch):
 
     session_id = ingest_payload["session_id"]
     assert session_store.get(session_id).draft_state.sections[0].status == "complete"
-
-
-def create_template(path: Path) -> Path:
-    document = Document()
-    document.add_heading("Project Overview", level=1)
-    document.add_paragraph("Describe the high-level objective.")
-    document.add_heading("Functional Requirements", level=1)
-    document.add_paragraph("List required business capabilities.")
-    document.save(str(path))
-    return path

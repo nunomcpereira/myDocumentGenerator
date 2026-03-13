@@ -74,3 +74,14 @@ cd backend
 python -m pip install -r requirements-test.txt
 pytest tests/test_batch_workflow.py
 ```
+
+Test assets live under [backend/tests/fixtures](backend/tests/fixtures). The main batch prompt is in [backend/tests/fixtures/chat_prompt.txt](backend/tests/fixtures/chat_prompt.txt), while the `.docx` template is generated dynamically by the shared fixture in [backend/tests/conftest.py](backend/tests/conftest.py) because it is easier to keep readable and editable in code than to store a binary file in the repo.
+
+To run the opt-in integration test that really calls your configured llama.cpp endpoint:
+
+```bash
+cd backend
+RUN_REAL_LLM_TESTS=1 pytest tests/test_real_llm_workflow.py
+```
+
+That test uses the real `LLMProvider`, skips automatically if the endpoint is not reachable, and asserts that `/chat` and `/export` complete successfully with the live model.

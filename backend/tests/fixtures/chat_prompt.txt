@@ -1,0 +1,3 @@
+Create a compliance onboarding specification for regulated enterprise customers.
+
+The workflow must cover identity verification, documentation review, approval audit trails, and reviewer notifications.

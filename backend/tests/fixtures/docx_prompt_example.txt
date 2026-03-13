@@ -1,0 +1,3 @@
+Create a final specification for a compliance onboarding workflow used by regulated enterprise customers.
+
+The document must be explicit about identity verification, document review, dual approval, reviewer notifications, role-based access control, seven-year retention, and localization readiness.
