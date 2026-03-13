@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: documentation-engine-backend
+    env_file:
+      - ./backend/.env
+    environment:
+      LLM_BASE_URL: http://host.docker.internal:8050/v1
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./backend/data:/app/data
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: documentation-engine-frontend
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"

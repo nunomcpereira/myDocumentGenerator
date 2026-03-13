@@ -1,0 +1,3 @@
+This should be kind of flexible and maybe eventually support whatever is needed later.
+
+Avoid vague wording, hedging, and filler language.

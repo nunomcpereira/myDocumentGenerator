@@ -1,0 +1,39 @@
+from functools import lru_cache
+from pathlib import Path
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    base_dir: Path = Path(__file__).resolve().parents[2]
+    app_name: str = "Documentation Generation & Localization Engine"
+    environment: str = "development"
+    api_prefix: str = "/v1"
+    llm_base_url: str = Field(default="http://localhost:8050/v1", alias="LLM_BASE_URL")
+    llm_api_key: str = Field(default="local-llm", alias="LLM_API_KEY")
+    llm_model: str = Field(default="llama.cpp", alias="LLM_MODEL")
+    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    storage_root: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[2] / "data")
+    vector_store_root: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[2] / "data" / "vectorstores")
+    upload_root: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[2] / "data" / "uploads")
+    generated_root: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[2] / "data" / "generated")
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    request_timeout_seconds: float = 45.0
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        populate_by_name=True,
+    )
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    settings = Settings()
+    settings.storage_root.mkdir(parents=True, exist_ok=True)
+    settings.vector_store_root.mkdir(parents=True, exist_ok=True)
+    settings.upload_root.mkdir(parents=True, exist_ok=True)
+    settings.generated_root.mkdir(parents=True, exist_ok=True)
+    return settings

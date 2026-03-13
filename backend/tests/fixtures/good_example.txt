@@ -1,0 +1,3 @@
+Use precise, measurable language. State the business goal first, then list operational requirements, actors, and compliance constraints.
+
+Preferred tone: direct, structured, and suitable for enterprise review.
