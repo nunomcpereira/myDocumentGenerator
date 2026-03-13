@@ -13,6 +13,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./backend/data:/app/data
+      - ./scenarios:/app/scenarios
 
   frontend:
     build:

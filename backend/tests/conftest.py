@@ -6,6 +6,7 @@ import pytest
 from docx import Document
 
 from app.core.config import get_settings
+from app.services.scenario_service import scenario_service
 
 
 @pytest.fixture
@@ -64,14 +65,17 @@ def sample_template_path(tmp_path: Path) -> Path:
 def isolated_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     settings = get_settings()
     storage_root = tmp_path / "storage"
+    scenarios_root = tmp_path / "scenarios"
     monkeypatch.setattr(settings, "storage_root", storage_root)
     monkeypatch.setattr(settings, "vector_store_root", storage_root / "vectorstores")
     monkeypatch.setattr(settings, "upload_root", storage_root / "uploads")
     monkeypatch.setattr(settings, "generated_root", storage_root / "generated")
-    monkeypatch.setattr(settings, "scenarios_root", tmp_path / "scenarios")
+    monkeypatch.setattr(settings, "scenarios_root", scenarios_root)
+    monkeypatch.setattr(settings, "scenarios_db_path", scenarios_root / "scenarios.db")
     settings.storage_root.mkdir(parents=True, exist_ok=True)
     settings.vector_store_root.mkdir(parents=True, exist_ok=True)
     settings.upload_root.mkdir(parents=True, exist_ok=True)
     settings.generated_root.mkdir(parents=True, exist_ok=True)
     settings.scenarios_root.mkdir(parents=True, exist_ok=True)
+    scenario_service._ensure_database()
     return tmp_path

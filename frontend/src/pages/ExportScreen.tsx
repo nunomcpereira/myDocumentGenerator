@@ -11,9 +11,17 @@ type ExportScreenProps = {
   snapshot: SessionSnapshot;
   selectedLanguages: string[];
   onLanguagesChange: (languages: string[]) => void;
+  outputFileName: string;
+  onOutputFileNameChange: (value: string) => void;
 };
 
-export function ExportScreen({ snapshot, selectedLanguages, onLanguagesChange }: ExportScreenProps) {
+export function ExportScreen({
+  snapshot,
+  selectedLanguages,
+  onLanguagesChange,
+  outputFileName,
+  onOutputFileNameChange,
+}: ExportScreenProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [archiveReady, setArchiveReady] = useState(false);
@@ -37,7 +45,7 @@ export function ExportScreen({ snapshot, selectedLanguages, onLanguagesChange }:
     setError(null);
     setArchiveReady(false);
     try {
-      const response = await exportDocuments(snapshot.sessionId!, selectedLanguages);
+      const response = await exportDocuments(snapshot.sessionId!, selectedLanguages, outputFileName.trim() || "localized-specification");
       setGeneratedFiles(response.generated_files);
       setArchiveReady(true);
     } catch (caught) {
@@ -75,6 +83,17 @@ export function ExportScreen({ snapshot, selectedLanguages, onLanguagesChange }:
           })}
         </div>
 
+        <label className="mt-8 block">
+          <span className="text-xs uppercase tracking-[0.24em] text-steel">Output filename</span>
+          <input
+            type="text"
+            value={outputFileName}
+            onChange={(event) => onOutputFileNameChange(event.target.value)}
+            placeholder="localized-specification"
+            className="mt-3 w-full rounded-3xl border border-stone-300 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-ember"
+          />
+        </label>
+
         <button
           type="button"
           onClick={handleExport}
@@ -93,6 +112,7 @@ export function ExportScreen({ snapshot, selectedLanguages, onLanguagesChange }:
         <h2 className="mt-3 font-serif text-3xl">Export package</h2>
         <div className="mt-6 space-y-4 text-sm leading-7 text-sand/80">
           <p>{snapshot.template?.file_name}</p>
+          <p>{outputFileName.trim() || "localized-specification"}.zip</p>
           <p>{selectedLanguages.length} target languages selected</p>
           <p>{generatedFiles.length} localized files generated</p>
         </div>

@@ -14,6 +14,7 @@ class TemplateSection(BaseModel):
     level: int = 1
     prompt_hint: str | None = None
     source_excerpt: str | None = None
+    heading_paragraph_index: int | None = None
     content_paragraph_indices: list[int] = Field(default_factory=list)
 
 
@@ -49,14 +50,23 @@ class SessionContext(BaseModel):
     scenario_id: str | None = None
     prompt: str | None = None
     export_languages: list[str] = Field(default_factory=list)
+    output_file_name: str | None = None
     warnings: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class LoadedFileReference(BaseModel):
+    kind: Literal["template", "good_example", "bad_example"]
+    file_name: str
+    download_path: str
 
 
 class IngestResponse(BaseModel):
     session_id: str
     template: TemplateStructure
     draft_state: DocumentDraftState
+    loaded_files: list[LoadedFileReference] = Field(default_factory=list)
+    output_file_name: str | None = None
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -91,12 +101,14 @@ class ChatResponse(BaseModel):
 class ExportRequest(BaseModel):
     session_id: str
     target_languages: list[str]
+    output_file_name: str | None = None
 
 
 class ExportResponse(BaseModel):
     session_id: str
     archive_path: str
     generated_files: list[str]
+    output_file_name: str | None = None
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -117,6 +129,7 @@ class ScenarioSummary(BaseModel):
     template_file_name: str | None = None
     prompt: str | None = None
     target_languages: list[str] = Field(default_factory=list)
+    output_file_name: str | None = None
     updated_at: datetime
 
 
@@ -125,6 +138,7 @@ class SaveScenarioRequest(BaseModel):
     scenario_id: str
     prompt: str | None = None
     target_languages: list[str] = Field(default_factory=list)
+    output_file_name: str | None = None
 
 
 class SaveScenarioResponse(BaseModel):
@@ -132,6 +146,7 @@ class SaveScenarioResponse(BaseModel):
     session_id: str
     prompt: str | None = None
     target_languages: list[str] = Field(default_factory=list)
+    output_file_name: str | None = None
     updated_at: datetime
 
 
@@ -148,3 +163,5 @@ class LoadScenarioResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     prompt: str | None = None
     target_languages: list[str] = Field(default_factory=list)
+    loaded_files: list[LoadedFileReference] = Field(default_factory=list)
+    output_file_name: str | None = None

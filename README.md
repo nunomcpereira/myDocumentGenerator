@@ -90,10 +90,14 @@ That test uses the real `LLMProvider`, skips automatically if the endpoint is no
 
 Saved scenarios are persisted under the repository root in the [scenarios](scenarios) folder. Each scenario directory stores:
 
+- the SQLite metadata database at [scenarios/scenarios.db](scenarios/scenarios.db)
 - the uploaded template
 - the uploaded good and bad examples
 - the last saved prompt
 - the current draft document state
 - the target languages selected for export
+- the custom output filename used for exports
 
 Use the scenario controls in the app header to load an existing scenario ID from the list on the first screen or save the currently loaded session from any screen.
+
+When running through Docker Compose, the backend mounts [scenarios](scenarios) into the container so scenario metadata and copied files persist across container restarts.

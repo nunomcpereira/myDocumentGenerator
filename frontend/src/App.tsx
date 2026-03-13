@@ -15,6 +15,8 @@ const initialSnapshot: SessionSnapshot = {
   scenarioId: "",
   prompt: "",
   exportLanguages: ["English", "Spanish", "French"],
+  outputFileName: "localized-specification",
+  loadedFiles: [],
   previewMarkdown: "",
   warnings: [],
 };
@@ -37,6 +39,8 @@ function ExportRoute({ snapshot, onSnapshotChange }: { snapshot: SessionSnapshot
       snapshot={snapshot}
       selectedLanguages={snapshot.exportLanguages}
       onLanguagesChange={(languages) => onSnapshotChange({ ...snapshot, exportLanguages: languages })}
+      outputFileName={snapshot.outputFileName}
+      onOutputFileNameChange={(outputFileName) => onSnapshotChange({ ...snapshot, outputFileName })}
     />
   );
 }
@@ -46,7 +50,28 @@ export default function App() {
   const navigate = useNavigate();
   const [snapshot, setSnapshot] = useState<SessionSnapshot>(() => {
     const raw = window.sessionStorage.getItem("documentation-engine-session");
-    return raw ? (JSON.parse(raw) as SessionSnapshot) : initialSnapshot;
+    if (!raw) {
+      return initialSnapshot;
+    }
+    try {
+      const parsed = JSON.parse(raw) as Partial<SessionSnapshot>;
+      return {
+        ...initialSnapshot,
+        ...parsed,
+        scenarioId: parsed.scenarioId ?? "",
+        prompt: parsed.prompt ?? "",
+        exportLanguages: Array.isArray(parsed.exportLanguages) && parsed.exportLanguages.length > 0
+          ? parsed.exportLanguages
+          : initialSnapshot.exportLanguages,
+        outputFileName: parsed.outputFileName ?? initialSnapshot.outputFileName,
+        loadedFiles: Array.isArray(parsed.loadedFiles) ? parsed.loadedFiles : [],
+        previewMarkdown: parsed.previewMarkdown ?? "",
+        warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
+      };
+    } catch {
+      window.sessionStorage.removeItem("documentation-engine-session");
+      return initialSnapshot;
+    }
   });
   const [scenarios, setScenarios] = useState<ScenarioSummary[]>([]);
   const [scenarioBusy, setScenarioBusy] = useState(false);
@@ -79,6 +104,8 @@ export default function App() {
         scenarioId: response.scenario_id,
         prompt: response.prompt ?? "",
         exportLanguages: response.target_languages.length > 0 ? response.target_languages : initialSnapshot.exportLanguages,
+        outputFileName: response.output_file_name ?? initialSnapshot.outputFileName,
+        loadedFiles: response.loaded_files,
         template: response.template,
         draftState: response.draft_state,
         previewMarkdown: response.preview_markdown,
@@ -102,12 +129,14 @@ export default function App() {
         scenarioId: snapshot.scenarioId,
         prompt: snapshot.prompt,
         targetLanguages: snapshot.exportLanguages,
+        outputFileName: snapshot.outputFileName,
       });
       setSnapshot((current) => ({
         ...current,
         scenarioId: response.scenario_id,
         prompt: response.prompt ?? current.prompt,
         exportLanguages: response.target_languages,
+        outputFileName: response.output_file_name ?? current.outputFileName,
       }));
       await refreshScenarios();
     } finally {

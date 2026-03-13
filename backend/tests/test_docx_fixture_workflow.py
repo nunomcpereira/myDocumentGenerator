@@ -65,15 +65,39 @@ def test_checked_in_docx_fixtures_generate_expected_output(
                 "sections": [
                     {
                         "section_id": "section-1",
+                        "title": "Project Overview",
                         "content": "Build a compliance onboarding workflow for regulated enterprise customers across KYC and document review stages.",
                     },
                     {
                         "section_id": "section-2",
+                        "title": "Functional Requirements",
                         "content": "Capture identity verification, document review, dual approval, reviewer notifications, and a complete audit trail for every submission.",
                     },
                     {
                         "section_id": "section-3",
+                        "title": "Non-Functional Requirements",
                         "content": "Enforce role-based access control, retain approval records for seven years, and prepare all user-facing content for localization.",
+                    },
+                ]
+            }
+
+        if "Target language: Spanish." in system_prompt:
+            return {
+                "sections": [
+                    {
+                        "section_id": "section-1",
+                        "title": "Resumen del proyecto",
+                        "content": "Crear un flujo de incorporacion de cumplimiento para clientes empresariales regulados en las etapas de KYC y revision documental.",
+                    },
+                    {
+                        "section_id": "section-2",
+                        "title": "Requisitos funcionales",
+                        "content": "Capturar la verificacion de identidad, la revision documental, la aprobacion dual, las notificaciones a revisores y una pista de auditoria completa para cada envio.",
+                    },
+                    {
+                        "section_id": "section-3",
+                        "title": "Requisitos no funcionales",
+                        "content": "Aplicar control de acceso basado en roles, conservar los registros de aprobacion durante siete anos y preparar todo el contenido visible para localizacion.",
                     },
                 ]
             }
@@ -89,21 +113,32 @@ def test_checked_in_docx_fixtures_generate_expected_output(
             good_example_paths=[sample_docx_good_example_path],
             bad_example_paths=[sample_docx_bad_example_path],
             message=docx_prompt,
-            languages=["English"],
+            languages=["English", "Spanish"],
+            output_file_name="localized-onboarding-spec",
             client=client,
         )
 
     export_payload = result["export"]
     archive_path = Path(export_payload["archive_path"])
-    generated_document_path = Path(export_payload["generated_files"][0])
+    generated_document_paths = [Path(path) for path in export_payload["generated_files"]]
+    english_document_path = next(path for path in generated_document_paths if path.name.endswith(".english.docx"))
+    spanish_document_path = next(path for path in generated_document_paths if path.name.endswith(".spanish.docx"))
 
     assert archive_path.exists()
-    assert generated_document_path.exists()
+    assert archive_path.name == "localized-onboarding-spec.zip"
+    assert len(generated_document_paths) == 2
+    assert all(path.exists() for path in generated_document_paths)
 
     with zipfile.ZipFile(archive_path) as archive:
-        assert generated_document_path.name in set(archive.namelist())
+        names = set(archive.namelist())
+        assert "localized-onboarding-spec.english.docx" in names
+        assert "localized-onboarding-spec.spanish.docx" in names
 
-    assert docx_text(generated_document_path) == docx_text(expected_docx_output_path)
+    assert docx_text(english_document_path) == docx_text(expected_docx_output_path)
+    spanish_lines = docx_text(spanish_document_path)
+    assert spanish_lines[0] == "Resumen del proyecto"
+    assert spanish_lines[1].startswith("Crear un flujo de incorporacion de cumplimiento")
+    assert spanish_lines != docx_text(expected_docx_output_path)
 
 
 def docx_text(path: Path) -> list[str]:

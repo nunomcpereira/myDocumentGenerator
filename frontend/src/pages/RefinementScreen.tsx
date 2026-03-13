@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Navigate } from "react-router-dom";
 
-import { sendChatMessage } from "../api/client";
+import { buildSessionFileUrl, sendChatMessage } from "../api/client";
 import { ChatPanel } from "../components/ChatPanel";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import type { ChatMessage, SessionSnapshot } from "../lib/types";
@@ -68,6 +68,23 @@ export function RefinementScreen({ snapshot, onUpdated }: RefinementScreenProps)
           </div>
         </div>
       </div>
+
+      <section className="rounded-[2rem] border border-white/60 bg-white/75 p-6 shadow-panel backdrop-blur">
+        <p className="text-xs uppercase tracking-[0.24em] text-steel">Loaded files</p>
+        <div className="mt-4 flex flex-wrap gap-3">
+          {snapshot.loadedFiles.map((file) => (
+            <a
+              key={`${file.kind}-${file.file_name}`}
+              href={buildSessionFileUrl(file.download_path)}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm text-ink transition hover:border-ember"
+            >
+              {file.kind.replace("_", " ")}: {file.file_name}
+            </a>
+          ))}
+        </div>
+      </section>
 
       <div className="grid min-h-[65vh] gap-6 xl:grid-cols-2">
         <ChatPanel messages={messages} busy={busy} llmAvailable={llmAvailable} onSend={handleSend} />

@@ -14,6 +14,12 @@ export type TemplateStructure = {
   extracted_outline: string[];
 };
 
+export type LoadedFileReference = {
+  kind: "template" | "good_example" | "bad_example";
+  file_name: string;
+  download_path: string;
+};
+
 export type DraftSectionState = {
   section_id: string;
   title: string;
@@ -33,6 +39,8 @@ export type IngestResponse = {
   session_id: string;
   template: TemplateStructure;
   draft_state: DocumentDraftState;
+  loaded_files: LoadedFileReference[];
+  output_file_name?: string | null;
   warnings: string[];
 };
 
@@ -50,6 +58,7 @@ export type ExportResponse = {
   session_id: string;
   archive_path: string;
   generated_files: string[];
+  output_file_name?: string | null;
   warnings: string[];
 };
 
@@ -58,6 +67,7 @@ export type ScenarioSummary = {
   template_file_name?: string | null;
   prompt?: string | null;
   target_languages: string[];
+  output_file_name?: string | null;
   updated_at: string;
 };
 
@@ -66,6 +76,7 @@ export type SaveScenarioResponse = {
   session_id: string;
   prompt?: string | null;
   target_languages: string[];
+  output_file_name?: string | null;
   updated_at: string;
 };
 
@@ -78,6 +89,8 @@ export type LoadScenarioResponse = {
   warnings: string[];
   prompt?: string | null;
   target_languages: string[];
+  loaded_files: LoadedFileReference[];
+  output_file_name?: string | null;
 };
 
 export type SessionSnapshot = {
@@ -85,6 +98,8 @@ export type SessionSnapshot = {
   scenarioId: string;
   prompt: string;
   exportLanguages: string[];
+  outputFileName: string;
+  loadedFiles: LoadedFileReference[];
   template?: TemplateStructure;
   draftState?: DocumentDraftState;
   previewMarkdown: string;

@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     upload_root: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[2] / "data" / "uploads")
     generated_root: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[2] / "data" / "generated")
     scenarios_root: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[3] / "scenarios")
+    scenarios_db_path: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[3] / "scenarios" / "scenarios.db")
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     request_timeout_seconds: float = 45.0
 
@@ -39,4 +40,5 @@ def get_settings() -> Settings:
     settings.upload_root.mkdir(parents=True, exist_ok=True)
     settings.generated_root.mkdir(parents=True, exist_ok=True)
     settings.scenarios_root.mkdir(parents=True, exist_ok=True)
+    settings.scenarios_db_path.parent.mkdir(parents=True, exist_ok=True)
     return settings

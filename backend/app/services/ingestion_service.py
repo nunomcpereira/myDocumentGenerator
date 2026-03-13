@@ -60,6 +60,7 @@ class IngestionService:
             draft_state=draft_state,
             good_example_paths=saved_good_examples,
             bad_example_paths=saved_bad_examples,
+            output_file_name=template_path.stem,
             warnings=warnings,
         )
 
@@ -100,6 +101,7 @@ class IngestionService:
                     title=text,
                     level=level,
                     source_excerpt=text,
+                    heading_paragraph_index=index,
                 )
                 sections.append(current_section)
                 extracted_outline.append(text)

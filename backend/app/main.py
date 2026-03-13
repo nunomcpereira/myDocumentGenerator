@@ -18,6 +18,7 @@ from app.models.document_state import (
     ExportRequest,
     ExportResponse,
     IngestResponse,
+    LoadedFileReference,
     LoadScenarioRequest,
     SaveScenarioRequest,
     SaveScenarioResponse,
@@ -67,6 +68,8 @@ async def ingest(
         session_id=session.session_id,
         template=session.template_structure,
         draft_state=session.draft_state,
+        loaded_files=build_loaded_files(session),
+        output_file_name=session.output_file_name,
         warnings=session.warnings,
     )
 
@@ -167,6 +170,7 @@ async def export(request: ExportRequest) -> ExportResponse:
     translation_payload: dict[str, dict[str, str]] = {}
     warnings = list(session.warnings)
     session.export_languages = request.target_languages
+    session.output_file_name = request.output_file_name or session.output_file_name or session.template_path.stem
     session_store.update(session.session_id, session)
 
     for language in request.target_languages:
@@ -178,11 +182,18 @@ async def export(request: ExportRequest) -> ExportResponse:
                 temperature=0.1,
             )
             sections = payload.get("sections") or []
-            translation_payload[language] = {
-                section["section_id"]: section["content"]
-                for section in sections
-                if isinstance(section, dict) and section.get("section_id") and section.get("content")
-            }
+            translation_payload[language] = {}
+            for section in sections:
+                if not isinstance(section, dict):
+                    continue
+                section_id = section.get("section_id")
+                if not section_id:
+                    continue
+                if section.get("content"):
+                    translation_payload[language][section_id] = section["content"]
+                    translation_payload[language][f"{section_id}::content"] = section["content"]
+                if section.get("title"):
+                    translation_payload[language][f"{section_id}::title"] = section["title"]
         except LLMProviderError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -192,6 +203,7 @@ async def export(request: ExportRequest) -> ExportResponse:
             session=session,
             translations=translation_payload,
             output_directory=output_directory,
+            output_file_name=session.output_file_name,
         )
     except ExportError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -201,13 +213,19 @@ async def export(request: ExportRequest) -> ExportResponse:
         session_id=request.session_id,
         archive_path=str(archive_path),
         generated_files=[str(file_path) for file_path in generated_files],
+        output_file_name=session.output_file_name,
         warnings=warnings,
     )
 
 
 @app.get("/export/{session_id}/download")
 async def download_export(session_id: str) -> FileResponse:
-    archive_path = settings.generated_root / session_id / f"{session_id}.zip"
+    try:
+        session = session_store.get(session_id)
+        archive_name = f"{(session.output_file_name or session.template_path.stem)}.zip"
+    except SessionNotFoundError:
+        archive_name = f"{session_id}.zip"
+    archive_path = settings.generated_root / session_id / archive_name
     if not archive_path.exists():
         raise HTTPException(status_code=404, detail="Export archive not found.")
     return FileResponse(path=archive_path, filename=archive_path.name, media_type="application/zip")
@@ -231,6 +249,7 @@ async def save_scenario(request: SaveScenarioRequest) -> SaveScenarioResponse:
             request.scenario_id,
             prompt=request.prompt,
             target_languages=request.target_languages,
+            output_file_name=request.output_file_name,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -248,7 +267,20 @@ async def load_scenario(request: LoadScenarioRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     session_store.save(session)
-    return scenario_service.build_load_response(session, render_preview_markdown(session))
+    return scenario_service.build_load_response(session, render_preview_markdown(session), build_loaded_files(session))
+
+
+@app.get("/sessions/{session_id}/files/{kind}/{file_name}")
+async def download_session_file(session_id: str, kind: str, file_name: str) -> FileResponse:
+    try:
+        session = session_store.get(session_id)
+    except SessionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    file_path = resolve_session_file(session, kind, file_name)
+    if file_path is None or not file_path.exists():
+        raise HTTPException(status_code=404, detail="Requested session file not found.")
+    return FileResponse(path=file_path, filename=file_path.name)
 
 
 def build_chat_system_prompt(session) -> str:
@@ -285,7 +317,8 @@ def build_translation_system_prompt(session, language: str) -> str:
     return (
         "You translate structured business and technical documentation. "
         "Preserve meaning, formatting intent, headings, and professional tone. "
-        "Return only JSON with a sections array, each containing section_id and content. "
+        "Translate both the section titles and the drafted section content into the requested target language. "
+        "Return only JSON with a sections array, each containing section_id, title, and content. "
         f"Target language: {language}."
     )
 
@@ -301,7 +334,7 @@ def build_translation_user_prompt(session, language: str, good_examples) -> str:
         f"Translate the drafted document content below into {language}. Do not translate template placeholder text that is not present in the drafted content.\n\n"
         f"Tone guidance from approved examples:\n{examples}\n\n"
         f"Drafted source sections to translate:\n{source_sections}\n\n"
-        'Return JSON in this shape: {"sections": [{"section_id": string, "content": string}]}'
+        'Return JSON in this shape: {"sections": [{"section_id": string, "title": string, "content": string}]}'
     )
 
 
@@ -373,4 +406,45 @@ def infer_section_assignment_from_message(message: str, sections: list[DraftSect
             if value:
                 return mentioned_sections[0], value
 
+    return None
+
+
+def build_loaded_files(session) -> list[LoadedFileReference]:
+    loaded_files = [
+        LoadedFileReference(
+            kind="template",
+            file_name=session.template_path.name,
+            download_path=f"/sessions/{session.session_id}/files/template/{session.template_path.name}",
+        )
+    ]
+    loaded_files.extend(
+        LoadedFileReference(
+            kind="good_example",
+            file_name=path.name,
+            download_path=f"/sessions/{session.session_id}/files/good_example/{path.name}",
+        )
+        for path in session.good_example_paths
+    )
+    loaded_files.extend(
+        LoadedFileReference(
+            kind="bad_example",
+            file_name=path.name,
+            download_path=f"/sessions/{session.session_id}/files/bad_example/{path.name}",
+        )
+        for path in session.bad_example_paths
+    )
+    return loaded_files
+
+
+def resolve_session_file(session, kind: str, file_name: str) -> Path | None:
+    if kind == "template" and session.template_path.name == file_name:
+        return session.template_path
+    if kind == "good_example":
+        for path in session.good_example_paths:
+            if path.name == file_name:
+                return path
+    if kind == "bad_example":
+        for path in session.bad_example_paths:
+            if path.name == file_name:
+                return path
     return None

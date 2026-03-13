@@ -45,13 +45,13 @@ export async function sendChatMessage(sessionId: string, message: string): Promi
   return handleResponse<ChatResponse>(response);
 }
 
-export async function exportDocuments(sessionId: string, targetLanguages: string[]): Promise<ExportResponse> {
+export async function exportDocuments(sessionId: string, targetLanguages: string[], outputFileName: string): Promise<ExportResponse> {
   const response = await fetch(`${API_BASE_URL}/export`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ session_id: sessionId, target_languages: targetLanguages }),
+    body: JSON.stringify({ session_id: sessionId, target_languages: targetLanguages, output_file_name: outputFileName }),
   });
   return handleResponse<ExportResponse>(response);
 }
@@ -77,6 +77,7 @@ export async function saveScenario(params: {
   scenarioId: string;
   prompt: string;
   targetLanguages: string[];
+  outputFileName: string;
 }): Promise<SaveScenarioResponse> {
   const response = await fetch(`${API_BASE_URL}/scenarios/save`, {
     method: "POST",
@@ -88,6 +89,7 @@ export async function saveScenario(params: {
       scenario_id: params.scenarioId,
       prompt: params.prompt,
       target_languages: params.targetLanguages,
+      output_file_name: params.outputFileName,
     }),
   });
   return handleResponse<SaveScenarioResponse>(response);
@@ -95,4 +97,8 @@ export async function saveScenario(params: {
 
 export function buildExportDownloadUrl(sessionId: string): string {
   return `${API_BASE_URL}/export/${sessionId}/download`;
+}
+
+export function buildSessionFileUrl(downloadPath: string): string {
+  return `${API_BASE_URL}${downloadPath}`;
 }

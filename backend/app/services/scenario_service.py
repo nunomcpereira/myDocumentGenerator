@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
@@ -11,6 +12,7 @@ from app.core.config import get_settings
 from app.core.errors import SessionNotFoundError
 from app.models.document_state import (
     DocumentDraftState,
+    LoadedFileReference,
     LoadScenarioResponse,
     SaveScenarioResponse,
     ScenarioSummary,
@@ -22,31 +24,40 @@ from app.models.document_state import (
 class ScenarioService:
     def __init__(self) -> None:
         self.settings = get_settings()
+        self._ensure_database()
 
     def list_scenarios(self) -> list[ScenarioSummary]:
-        summaries: list[ScenarioSummary] = []
-        for scenario_dir in sorted(self.settings.scenarios_root.iterdir() if self.settings.scenarios_root.exists() else [], reverse=True):
-            metadata_path = scenario_dir / "scenario.json"
-            if not scenario_dir.is_dir() or not metadata_path.exists():
-                continue
-            payload = json.loads(metadata_path.read_text(encoding="utf-8"))
-            summaries.append(
-                ScenarioSummary(
-                    scenario_id=payload["scenario_id"],
-                    template_file_name=payload.get("template_file_name"),
-                    prompt=payload.get("prompt"),
-                    target_languages=payload.get("target_languages", []),
-                    updated_at=datetime.fromisoformat(payload["updated_at"]),
-                )
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT scenario_id, template_file_name, prompt, target_languages_json, output_file_name, updated_at
+                FROM scenarios
+                ORDER BY updated_at DESC
+                """
+            ).fetchall()
+        return [
+            ScenarioSummary(
+                scenario_id=row[0],
+                template_file_name=row[1],
+                prompt=row[2],
+                target_languages=json.loads(row[3] or "[]"),
+                output_file_name=row[4],
+                updated_at=datetime.fromisoformat(row[5]),
             )
-        summaries.sort(key=lambda item: item.updated_at, reverse=True)
-        return summaries
+            for row in rows
+        ]
 
-    def save_scenario(self, session: SessionContext, scenario_id: str, *, prompt: str | None, target_languages: list[str]) -> SaveScenarioResponse:
+    def save_scenario(
+        self,
+        session: SessionContext,
+        scenario_id: str,
+        *,
+        prompt: str | None,
+        target_languages: list[str],
+        output_file_name: str | None,
+    ) -> SaveScenarioResponse:
         normalized_id = self._normalize_scenario_id(scenario_id)
         scenario_dir = self.settings.scenarios_root / normalized_id
-        if scenario_dir.exists():
-            shutil.rmtree(scenario_dir)
         scenario_dir.mkdir(parents=True, exist_ok=True)
 
         template_dir = scenario_dir / "template"
@@ -65,65 +76,116 @@ class ScenarioService:
         session.scenario_id = normalized_id
         session.prompt = prompt or session.prompt
         session.export_languages = target_languages or session.export_languages
+        session.output_file_name = output_file_name or session.output_file_name or session.template_path.stem
 
-        metadata = {
-            "scenario_id": normalized_id,
-            "template_file_name": session.template_path.name,
-            "template_relative_path": str(Path("template") / session.template_path.name),
-            "good_example_relative_paths": [str(Path("good_examples") / path.name) for path in copied_good],
-            "bad_example_relative_paths": [str(Path("bad_examples") / path.name) for path in copied_bad],
-            "template_structure": session.template_structure.model_dump(mode="json"),
-            "draft_state": session.draft_state.model_dump(mode="json"),
-            "prompt": session.prompt,
-            "target_languages": session.export_languages,
-            "warnings": session.warnings,
-            "updated_at": updated_at.isoformat(),
-        }
-        (scenario_dir / "scenario.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO scenarios (
+                    scenario_id,
+                    template_file_name,
+                    template_relative_path,
+                    good_example_relative_paths_json,
+                    bad_example_relative_paths_json,
+                    template_structure_json,
+                    draft_state_json,
+                    prompt,
+                    target_languages_json,
+                    output_file_name,
+                    warnings_json,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(scenario_id) DO UPDATE SET
+                    template_file_name = excluded.template_file_name,
+                    template_relative_path = excluded.template_relative_path,
+                    good_example_relative_paths_json = excluded.good_example_relative_paths_json,
+                    bad_example_relative_paths_json = excluded.bad_example_relative_paths_json,
+                    template_structure_json = excluded.template_structure_json,
+                    draft_state_json = excluded.draft_state_json,
+                    prompt = excluded.prompt,
+                    target_languages_json = excluded.target_languages_json,
+                    output_file_name = excluded.output_file_name,
+                    warnings_json = excluded.warnings_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    normalized_id,
+                    session.template_path.name,
+                    str(Path("template") / session.template_path.name),
+                    json.dumps([str(Path("good_examples") / path.name) for path in copied_good]),
+                    json.dumps([str(Path("bad_examples") / path.name) for path in copied_bad]),
+                    json.dumps(session.template_structure.model_dump(mode="json")),
+                    json.dumps(session.draft_state.model_dump(mode="json")),
+                    session.prompt,
+                    json.dumps(session.export_languages),
+                    session.output_file_name,
+                    json.dumps(session.warnings),
+                    updated_at.isoformat(),
+                ),
+            )
+            connection.commit()
+
         return SaveScenarioResponse(
             scenario_id=normalized_id,
             session_id=session.session_id,
             prompt=session.prompt,
             target_languages=session.export_languages,
+            output_file_name=session.output_file_name,
             updated_at=updated_at,
         )
 
     def load_scenario(self, scenario_id: str) -> SessionContext:
         normalized_id = self._normalize_scenario_id(scenario_id)
         scenario_dir = self.settings.scenarios_root / normalized_id
-        metadata_path = scenario_dir / "scenario.json"
-        if not metadata_path.exists():
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT template_relative_path,
+                       good_example_relative_paths_json,
+                       bad_example_relative_paths_json,
+                       template_structure_json,
+                       draft_state_json,
+                       prompt,
+                       target_languages_json,
+                       output_file_name,
+                       warnings_json
+                FROM scenarios
+                WHERE scenario_id = ?
+                """,
+                (normalized_id,),
+            ).fetchone()
+        if row is None:
             raise SessionNotFoundError(f"Unknown scenario: {scenario_id}")
 
-        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
         session_id = str(uuid4())
         session_dir = self.settings.upload_root / session_id
         session_dir.mkdir(parents=True, exist_ok=True)
 
-        template_source = scenario_dir / payload["template_relative_path"]
+        template_source = scenario_dir / row[0]
         template_target = session_dir / template_source.name
         shutil.copy2(template_source, template_target)
 
-        good_paths = [self._copy_file(scenario_dir / relative_path, session_dir) for relative_path in payload.get("good_example_relative_paths", [])]
-        bad_paths = [self._copy_file(scenario_dir / relative_path, session_dir) for relative_path in payload.get("bad_example_relative_paths", [])]
+        good_paths = [self._copy_file(scenario_dir / relative_path, session_dir) for relative_path in json.loads(row[1] or "[]")]
+        bad_paths = [self._copy_file(scenario_dir / relative_path, session_dir) for relative_path in json.loads(row[2] or "[]")]
 
-        draft_state = DocumentDraftState.model_validate(payload["draft_state"])
+        draft_state = DocumentDraftState.model_validate(json.loads(row[4]))
         draft_state.session_id = session_id
 
         return SessionContext(
             session_id=session_id,
             scenario_id=normalized_id,
             template_path=template_target,
-            template_structure=TemplateStructure.model_validate(payload["template_structure"]),
+            template_structure=TemplateStructure.model_validate(json.loads(row[3])),
             draft_state=draft_state,
             good_example_paths=good_paths,
             bad_example_paths=bad_paths,
-            prompt=payload.get("prompt"),
-            export_languages=payload.get("target_languages", []),
-            warnings=payload.get("warnings", []),
+            prompt=row[5],
+            export_languages=json.loads(row[6] or "[]"),
+            output_file_name=row[7],
+            warnings=json.loads(row[8] or "[]"),
         )
 
-    def build_load_response(self, session: SessionContext, preview_markdown: str) -> LoadScenarioResponse:
+    def build_load_response(self, session: SessionContext, preview_markdown: str, loaded_files: list[LoadedFileReference]) -> LoadScenarioResponse:
         return LoadScenarioResponse(
             scenario_id=session.scenario_id or "",
             session_id=session.session_id,
@@ -133,7 +195,37 @@ class ScenarioService:
             warnings=session.warnings,
             prompt=session.prompt,
             target_languages=session.export_languages,
+            loaded_files=loaded_files,
+            output_file_name=session.output_file_name,
         )
+
+    def _ensure_database(self) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS scenarios (
+                    scenario_id TEXT PRIMARY KEY,
+                    template_file_name TEXT,
+                    template_relative_path TEXT NOT NULL,
+                    good_example_relative_paths_json TEXT NOT NULL,
+                    bad_example_relative_paths_json TEXT NOT NULL,
+                    template_structure_json TEXT NOT NULL,
+                    draft_state_json TEXT NOT NULL,
+                    prompt TEXT,
+                    target_languages_json TEXT NOT NULL,
+                    output_file_name TEXT,
+                    warnings_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(scenarios)").fetchall()}
+            if "output_file_name" not in columns:
+                connection.execute("ALTER TABLE scenarios ADD COLUMN output_file_name TEXT")
+            connection.commit()
+
+    def _connect(self) -> sqlite3.Connection:
+        return sqlite3.connect(self.settings.scenarios_db_path)
 
     @staticmethod
     def _normalize_scenario_id(scenario_id: str) -> str:

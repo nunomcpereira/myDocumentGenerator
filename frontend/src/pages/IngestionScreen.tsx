@@ -36,6 +36,8 @@ export function IngestionScreen({ onInitialized }: IngestionScreenProps) {
         scenarioId: "",
         prompt: "",
         exportLanguages: ["English", "Spanish", "French"],
+        outputFileName: response.output_file_name ?? template.name.replace(/\.[^.]+$/, ""),
+        loadedFiles: response.loaded_files,
         template: response.template,
         draftState: response.draft_state,
         previewMarkdown: `# ${response.template.file_name}\n\n${previewMarkdown}`,
