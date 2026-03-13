@@ -5,14 +5,15 @@ import { Navigate } from "react-router-dom";
 import { buildExportDownloadUrl, exportDocuments } from "../api/client";
 import type { SessionSnapshot } from "../lib/types";
 
-const defaultLanguages = ["English", "Spanish", "French", "German", "Portuguese"];
+export const defaultLanguages = ["English", "Spanish", "French", "German", "Portuguese"];
 
 type ExportScreenProps = {
   snapshot: SessionSnapshot;
+  selectedLanguages: string[];
+  onLanguagesChange: (languages: string[]) => void;
 };
 
-export function ExportScreen({ snapshot }: ExportScreenProps) {
-  const [selectedLanguages, setSelectedLanguages] = useState<string[]>(["English", "Spanish", "French"]);
+export function ExportScreen({ snapshot, selectedLanguages, onLanguagesChange }: ExportScreenProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [archiveReady, setArchiveReady] = useState(false);
@@ -25,9 +26,10 @@ export function ExportScreen({ snapshot }: ExportScreenProps) {
   const downloadUrl = useMemo(() => buildExportDownloadUrl(snapshot.sessionId!), [snapshot.sessionId]);
 
   function toggleLanguage(language: string) {
-    setSelectedLanguages((current) =>
-      current.includes(language) ? current.filter((item) => item !== language) : [...current, language],
-    );
+    const nextLanguages = selectedLanguages.includes(language)
+      ? selectedLanguages.filter((item) => item !== language)
+      : [...selectedLanguages, language];
+    onLanguagesChange(nextLanguages);
   }
 
   async function handleExport() {

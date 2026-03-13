@@ -46,6 +46,9 @@ class SessionContext(BaseModel):
     draft_state: DocumentDraftState
     good_example_paths: list[Path] = Field(default_factory=list)
     bad_example_paths: list[Path] = Field(default_factory=list)
+    scenario_id: str | None = None
+    prompt: str | None = None
+    export_languages: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -62,10 +65,17 @@ class ChatRequest(BaseModel):
     message: str
 
 
+class ChatSectionUpdate(BaseModel):
+    section_id: str | None = None
+    title: str | None = None
+    content: str = ""
+    status: Literal["missing", "in_progress", "complete"] = "in_progress"
+
+
 class ChatResult(BaseModel):
     assistant_message: str
     summary: str | None = None
-    section_updates: list[DraftSectionState] = Field(default_factory=list)
+    section_updates: list[ChatSectionUpdate] = Field(default_factory=list)
 
 
 class ChatResponse(BaseModel):
@@ -100,3 +110,41 @@ class RetrievalContext(BaseModel):
     good_examples: list[ExampleSnippet] = Field(default_factory=list)
     bad_examples: list[ExampleSnippet] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+class ScenarioSummary(BaseModel):
+    scenario_id: str
+    template_file_name: str | None = None
+    prompt: str | None = None
+    target_languages: list[str] = Field(default_factory=list)
+    updated_at: datetime
+
+
+class SaveScenarioRequest(BaseModel):
+    session_id: str
+    scenario_id: str
+    prompt: str | None = None
+    target_languages: list[str] = Field(default_factory=list)
+
+
+class SaveScenarioResponse(BaseModel):
+    scenario_id: str
+    session_id: str
+    prompt: str | None = None
+    target_languages: list[str] = Field(default_factory=list)
+    updated_at: datetime
+
+
+class LoadScenarioRequest(BaseModel):
+    scenario_id: str
+
+
+class LoadScenarioResponse(BaseModel):
+    scenario_id: str
+    session_id: str
+    template: TemplateStructure
+    draft_state: DocumentDraftState
+    preview_markdown: str
+    warnings: list[str] = Field(default_factory=list)
+    prompt: str | None = None
+    target_languages: list[str] = Field(default_factory=list)

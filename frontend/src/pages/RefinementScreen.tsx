@@ -35,6 +35,7 @@ export function RefinementScreen({ snapshot, onUpdated }: RefinementScreenProps)
       setLlmAvailable(response.llm_available);
       onUpdated({
         ...snapshot,
+        prompt: message,
         draftState: response.draft_state,
         previewMarkdown: response.preview_markdown,
         warnings: response.warnings,

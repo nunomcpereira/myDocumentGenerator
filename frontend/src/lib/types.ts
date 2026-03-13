@@ -53,8 +53,38 @@ export type ExportResponse = {
   warnings: string[];
 };
 
+export type ScenarioSummary = {
+  scenario_id: string;
+  template_file_name?: string | null;
+  prompt?: string | null;
+  target_languages: string[];
+  updated_at: string;
+};
+
+export type SaveScenarioResponse = {
+  scenario_id: string;
+  session_id: string;
+  prompt?: string | null;
+  target_languages: string[];
+  updated_at: string;
+};
+
+export type LoadScenarioResponse = {
+  scenario_id: string;
+  session_id: string;
+  template: TemplateStructure;
+  draft_state: DocumentDraftState;
+  preview_markdown: string;
+  warnings: string[];
+  prompt?: string | null;
+  target_languages: string[];
+};
+
 export type SessionSnapshot = {
   sessionId: string | null;
+  scenarioId: string;
+  prompt: string;
+  exportLanguages: string[];
   template?: TemplateStructure;
   draftState?: DocumentDraftState;
   previewMarkdown: string;

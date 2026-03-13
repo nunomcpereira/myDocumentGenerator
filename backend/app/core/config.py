@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     base_dir: Path = Path(__file__).resolve().parents[2]
+    project_root: Path = Path(__file__).resolve().parents[3]
     app_name: str = "Documentation Generation & Localization Engine"
     environment: str = "development"
     api_prefix: str = "/v1"
@@ -18,6 +19,7 @@ class Settings(BaseSettings):
     vector_store_root: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[2] / "data" / "vectorstores")
     upload_root: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[2] / "data" / "uploads")
     generated_root: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[2] / "data" / "generated")
+    scenarios_root: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[3] / "scenarios")
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     request_timeout_seconds: float = 45.0
 
@@ -36,4 +38,5 @@ def get_settings() -> Settings:
     settings.vector_store_root.mkdir(parents=True, exist_ok=True)
     settings.upload_root.mkdir(parents=True, exist_ok=True)
     settings.generated_root.mkdir(parents=True, exist_ok=True)
+    settings.scenarios_root.mkdir(parents=True, exist_ok=True)
     return settings

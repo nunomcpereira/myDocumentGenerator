@@ -33,6 +33,9 @@ export function IngestionScreen({ onInitialized }: IngestionScreenProps) {
 
       onInitialized({
         sessionId: response.session_id,
+        scenarioId: "",
+        prompt: "",
+        exportLanguages: ["English", "Spanish", "French"],
         template: response.template,
         draftState: response.draft_state,
         previewMarkdown: `# ${response.template.file_name}\n\n${previewMarkdown}`,

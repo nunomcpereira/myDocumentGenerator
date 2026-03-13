@@ -85,3 +85,15 @@ RUN_REAL_LLM_TESTS=1 pytest tests/test_real_llm_workflow.py
 ```
 
 That test uses the real `LLMProvider`, skips automatically if the endpoint is not reachable, and asserts that `/chat` and `/export` complete successfully with the live model.
+
+## Scenarios
+
+Saved scenarios are persisted under the repository root in the [scenarios](scenarios) folder. Each scenario directory stores:
+
+- the uploaded template
+- the uploaded good and bad examples
+- the last saved prompt
+- the current draft document state
+- the target languages selected for export
+
+Use the scenario controls in the app header to load an existing scenario ID from the list on the first screen or save the currently loaded session from any screen.

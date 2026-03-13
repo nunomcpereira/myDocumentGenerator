@@ -24,6 +24,7 @@ def test_batch_workflow_generates_localized_archive(
     monkeypatch: pytest.MonkeyPatch,
     sample_template_path: Path,
     sample_prompt: str,
+    isolated_storage: Path,
 ):
     template_path = sample_template_path
     good_example_path = ROOT_DIR / "tests" / "fixtures" / "good_example.txt"
@@ -119,3 +120,119 @@ def test_batch_workflow_generates_localized_archive(
 
     session_id = ingest_payload["session_id"]
     assert session_store.get(session_id).draft_state.sections[0].status == "complete"
+
+
+def test_chat_updates_section_when_llm_returns_title_instead_of_section_id(
+    monkeypatch: pytest.MonkeyPatch,
+    sample_template_path: Path,
+    isolated_storage: Path,
+) -> None:
+    monkeypatch.setattr(rag_service, "index_examples", lambda *args, **kwargs: [])
+
+    async def fake_generate_json(*, system_prompt: str, user_prompt: str, temperature: float = 0.2):
+        if '"assistant_message"' in user_prompt:
+            return {
+                "assistant_message": "Updated the requested field.",
+                "summary": "One field updated.",
+                "section_updates": [
+                    {
+                        "section_id": "project overview",
+                        "title": "Project Overview",
+                        "content": "Nuno Pereira",
+                        "status": "complete",
+                    }
+                ],
+            }
+        raise AssertionError(f"Unexpected prompt: {system_prompt}")
+
+    monkeypatch.setattr(llm_provider, "generate_json", fake_generate_json)
+
+    with TestClient(app) as client:
+        with sample_template_path.open("rb") as template_handle:
+            ingest_response = client.post(
+                "/ingest",
+                files={
+                    "template": (
+                        sample_template_path.name,
+                        template_handle.read(),
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    )
+                },
+            )
+        ingest_response.raise_for_status()
+        session_id = ingest_response.json()["session_id"]
+
+        chat_response = client.post(
+            "/chat",
+            json={"session_id": session_id, "message": "Set Project Overview to Nuno Pereira."},
+        )
+        chat_response.raise_for_status()
+
+    payload = chat_response.json()
+    assert "Nuno Pereira" in payload["preview_markdown"]
+    assert payload["draft_state"]["sections"][0]["content"] == "Nuno Pereira"
+
+
+def test_chat_falls_back_to_user_assignment_when_llm_returns_no_section_updates(
+    monkeypatch: pytest.MonkeyPatch,
+    sample_docx_template_path: Path,
+    sample_docx_good_example_path: Path,
+    sample_docx_bad_example_path: Path,
+    isolated_storage: Path,
+) -> None:
+    monkeypatch.setattr(rag_service, "index_examples", lambda *args, **kwargs: [])
+
+    async def fake_generate_json(*, system_prompt: str, user_prompt: str, temperature: float = 0.2):
+        if '"assistant_message"' in user_prompt:
+            return {
+                "assistant_message": "Updating the Project Overview field with the provided name.",
+                "summary": "Project Overview section has been updated with 'Nuno Pereira'.",
+                "section_updates": [],
+            }
+        raise AssertionError(f"Unexpected prompt: {system_prompt}")
+
+    monkeypatch.setattr(llm_provider, "generate_json", fake_generate_json)
+
+    with TestClient(app) as client:
+        with sample_docx_template_path.open("rb") as template_handle, sample_docx_good_example_path.open("rb") as good_handle, sample_docx_bad_example_path.open("rb") as bad_handle:
+            ingest_response = client.post(
+                "/ingest",
+                files=[
+                    (
+                        "template",
+                        (
+                            sample_docx_template_path.name,
+                            template_handle.read(),
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        ),
+                    ),
+                    (
+                        "good_examples",
+                        (
+                            sample_docx_good_example_path.name,
+                            good_handle.read(),
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        ),
+                    ),
+                    (
+                        "bad_examples",
+                        (
+                            sample_docx_bad_example_path.name,
+                            bad_handle.read(),
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        ),
+                    ),
+                ],
+            )
+        ingest_response.raise_for_status()
+        session_id = ingest_response.json()["session_id"]
+
+        chat_response = client.post(
+            "/chat",
+            json={"session_id": session_id, "message": 'fill "Nuno Pereira" on "Project Overview" field'},
+        )
+        chat_response.raise_for_status()
+
+    payload = chat_response.json()
+    assert payload["draft_state"]["sections"][0]["content"] == "Nuno Pereira"
+    assert "Nuno Pereira" in payload["preview_markdown"]

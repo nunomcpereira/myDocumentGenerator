@@ -1,4 +1,11 @@
-import type { ChatResponse, ExportResponse, IngestResponse } from "../lib/types";
+import type {
+  ChatResponse,
+  ExportResponse,
+  IngestResponse,
+  LoadScenarioResponse,
+  SaveScenarioResponse,
+  ScenarioSummary,
+} from "../lib/types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
@@ -47,6 +54,43 @@ export async function exportDocuments(sessionId: string, targetLanguages: string
     body: JSON.stringify({ session_id: sessionId, target_languages: targetLanguages }),
   });
   return handleResponse<ExportResponse>(response);
+}
+
+export async function listScenarios(): Promise<ScenarioSummary[]> {
+  const response = await fetch(`${API_BASE_URL}/scenarios`);
+  return handleResponse<ScenarioSummary[]>(response);
+}
+
+export async function loadScenario(scenarioId: string): Promise<LoadScenarioResponse> {
+  const response = await fetch(`${API_BASE_URL}/scenarios/load`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ scenario_id: scenarioId }),
+  });
+  return handleResponse<LoadScenarioResponse>(response);
+}
+
+export async function saveScenario(params: {
+  sessionId: string;
+  scenarioId: string;
+  prompt: string;
+  targetLanguages: string[];
+}): Promise<SaveScenarioResponse> {
+  const response = await fetch(`${API_BASE_URL}/scenarios/save`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      session_id: params.sessionId,
+      scenario_id: params.scenarioId,
+      prompt: params.prompt,
+      target_languages: params.targetLanguages,
+    }),
+  });
+  return handleResponse<SaveScenarioResponse>(response);
 }
 
 export function buildExportDownloadUrl(sessionId: string): string {
