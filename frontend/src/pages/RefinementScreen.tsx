@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { startTransition, useDeferredValue, useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 
 import { buildSessionFileUrl, sendChatMessage } from "../api/client";
@@ -12,7 +12,7 @@ type RefinementScreenProps = {
 };
 
 export function RefinementScreen({ snapshot, onUpdated }: RefinementScreenProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([
+  const [messages, setMessages] = useState<ChatMessage[]>(() => [
     {
       role: "assistant",
       content:
@@ -21,10 +21,22 @@ export function RefinementScreen({ snapshot, onUpdated }: RefinementScreenProps)
   ]);
   const [busy, setBusy] = useState(false);
   const [llmAvailable, setLlmAvailable] = useState(true);
+  const deferredPreviewMarkdown = useDeferredValue(snapshot.previewMarkdown);
 
   if (!snapshot.sessionId) {
     return <Navigate to="/" replace />;
   }
+
+  useEffect(() => {
+    setMessages([
+      {
+        role: "assistant",
+        content:
+          "The template is initialized. Describe the project scope, intended audience, constraints, and any non-functional requirements so I can complete the draft spec.",
+      },
+    ]);
+    setLlmAvailable(true);
+  }, [snapshot.sessionId]);
 
   async function handleSend(message: string) {
     setBusy(true);
@@ -33,12 +45,14 @@ export function RefinementScreen({ snapshot, onUpdated }: RefinementScreenProps)
       const response = await sendChatMessage(snapshot.sessionId!, message);
       setMessages((current) => [...current, { role: "assistant", content: response.assistant_message }]);
       setLlmAvailable(response.llm_available);
-      onUpdated({
-        ...snapshot,
-        prompt: message,
-        draftState: response.draft_state,
-        previewMarkdown: response.preview_markdown,
-        warnings: response.warnings,
+      startTransition(() => {
+        onUpdated({
+          ...snapshot,
+          prompt: message,
+          draftState: response.draft_state,
+          previewMarkdown: response.preview_markdown,
+          warnings: response.warnings,
+        });
       });
     } catch (caught) {
       const error = caught instanceof Error ? caught.message : "Chat request failed.";
@@ -54,7 +68,7 @@ export function RefinementScreen({ snapshot, onUpdated }: RefinementScreenProps)
 
   return (
     <div className="space-y-6">
-      <div className="rounded-[2rem] border border-white/60 bg-white/75 p-6 shadow-panel backdrop-blur">
+      <div className="panel-surface rounded-[2rem] border border-white/60 bg-white/75 p-6 shadow-panel">
         <p className="text-xs uppercase tracking-[0.24em] text-steel">Phase 2</p>
         <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
           <div>
@@ -69,7 +83,7 @@ export function RefinementScreen({ snapshot, onUpdated }: RefinementScreenProps)
         </div>
       </div>
 
-      <section className="rounded-[2rem] border border-white/60 bg-white/75 p-6 shadow-panel backdrop-blur">
+      <section className="panel-surface rounded-[2rem] border border-white/60 bg-white/75 p-6 shadow-panel">
         <p className="text-xs uppercase tracking-[0.24em] text-steel">Loaded files</p>
         <div className="mt-4 flex flex-wrap gap-3">
           {snapshot.loadedFiles.map((file) => (
@@ -88,7 +102,7 @@ export function RefinementScreen({ snapshot, onUpdated }: RefinementScreenProps)
 
       <div className="grid min-h-[65vh] gap-6 xl:grid-cols-2">
         <ChatPanel messages={messages} busy={busy} llmAvailable={llmAvailable} onSend={handleSend} />
-        <MarkdownPreview value={snapshot.previewMarkdown} />
+        <MarkdownPreview value={deferredPreviewMarkdown} />
       </div>
     </div>
   );

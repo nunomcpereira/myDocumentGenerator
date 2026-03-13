@@ -1,5 +1,5 @@
 import { LoaderCircle, SendHorizontal, TriangleAlert } from "lucide-react";
-import { useState } from "react";
+import { memo, useState } from "react";
 
 import type { ChatMessage } from "../lib/types";
 
@@ -10,7 +10,7 @@ type ChatPanelProps = {
   onSend: (message: string) => Promise<void>;
 };
 
-export function ChatPanel({ messages, busy, llmAvailable, onSend }: ChatPanelProps) {
+export const ChatPanel = memo(function ChatPanel({ messages, busy, llmAvailable, onSend }: ChatPanelProps) {
   const [draft, setDraft] = useState("");
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -24,7 +24,7 @@ export function ChatPanel({ messages, busy, llmAvailable, onSend }: ChatPanelPro
   }
 
   return (
-    <section className="flex h-full flex-col rounded-[2rem] border border-white/70 bg-white/80 p-5 shadow-panel backdrop-blur">
+    <section className="panel-surface flex h-full flex-col rounded-[2rem] border border-white/70 bg-white/80 p-5 shadow-panel">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.24em] text-steel">Interviewing analyst</p>
@@ -81,4 +81,4 @@ export function ChatPanel({ messages, busy, llmAvailable, onSend }: ChatPanelPro
       </form>
     </section>
   );
-}
+});

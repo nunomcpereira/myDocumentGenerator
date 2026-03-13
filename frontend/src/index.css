@@ -23,6 +23,11 @@ body {
   min-height: 100vh;
 }
 
+.panel-surface {
+  contain: paint;
+  transform: translateZ(0);
+}
+
 * {
   box-sizing: border-box;
 }
