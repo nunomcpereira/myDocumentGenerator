@@ -161,7 +161,7 @@ export default function App() {
             <span className="text-sm text-ink">Documentation Generation & Localization Engine</span>
           </div>
           <h1 className="mt-4 max-w-4xl font-serif text-4xl text-ink sm:text-5xl">
-            API-first specification generation, analyst-guided refinement, and structural localization.
+           AI Document Generator
           </h1>
         </div>
         <ProgressStepper currentStep={currentStep} sessionId={snapshot.sessionId} />
