@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
 import sys
 import zipfile
 from pathlib import Path
+import json
 
 from docx import Document
 from fastapi.testclient import TestClient
@@ -13,11 +16,346 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from app.main import app
+from app.models.document_state import McpServerCatalogResponse, McpServerSummary
+from app.services.docker_mcp_service import DockerMcpToolCallResult, DockerMcpToolSpec, docker_mcp_service
+import app.services.llm_provider as llm_provider_module
 from app.services.llm_provider import llm_provider
 from app.services.rag_service import rag_service
 from app.services.session_store import session_store
 from app.services.translation_service import translation_service
 from scripts.run_batch_workflow import run_batch_workflow
+
+
+def test_llm_provider_includes_selected_mcp_servers_in_system_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        docker_mcp_service,
+        "list_servers",
+        lambda: McpServerCatalogResponse(
+            available=True,
+            servers=[McpServerSummary(name="fetch", description="Fetches a URL from the internet.")],
+        ),
+    )
+
+    prompt = llm_provider.with_scenario_mcp_context("Base prompt.", ["fetch"])
+
+    assert "Base prompt." in prompt
+    assert "Scenario MCP server context" in prompt
+    assert "fetch" in prompt
+    assert "Fetches a URL from the internet." in prompt
+
+
+def test_llm_provider_executes_selected_mcp_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+    payloads: list[dict[str, object]] = []
+    tool_calls: list[tuple[str, dict[str, object]]] = []
+
+    class FakeResponse:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = payload
+            self.text = json.dumps(payload)
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return self._payload
+
+    responses = [
+        FakeResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": "call-fetch-1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "fetch",
+                                        "arguments": '{"url": "https://www.jn.pt"}',
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+        ),
+        FakeResponse({"choices": [{"message": {"content": "Fetched content summary."}}]}),
+    ]
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self) -> "FakeAsyncClient":
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def post(self, url: str, json: dict[str, object], headers: dict[str, str]) -> FakeResponse:
+            payloads.append(json)
+            return responses.pop(0)
+
+    class FakeGatewayClient:
+        async def list_tools(self) -> list[DockerMcpToolSpec]:
+            return [
+                DockerMcpToolSpec(
+                    name="fetch",
+                    description="Fetch a URL from the internet.",
+                    input_schema={
+                        "type": "object",
+                        "properties": {"url": {"type": "string"}},
+                        "required": ["url"],
+                    },
+                )
+            ]
+
+        async def call_tool(self, tool_name: str, arguments: dict[str, object]) -> DockerMcpToolCallResult:
+            tool_calls.append((tool_name, arguments))
+            return DockerMcpToolCallResult(
+                text="{\"url\": \"https://www.jn.pt\", \"content\": \"Headline from JN\"}",
+                structured_content={"url": "https://www.jn.pt", "content": "Headline from JN"},
+            )
+
+    @asynccontextmanager
+    async def fake_tool_client(server_names: list[str]):
+        assert server_names == ["fetch"]
+        yield FakeGatewayClient()
+
+    monkeypatch.setattr(docker_mcp_service, "tool_client", fake_tool_client)
+    monkeypatch.setattr(llm_provider_module.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = asyncio.run(
+        llm_provider.chat_completion(
+            system_prompt="Use tools when needed.",
+            user_prompt="Load data from jn.pt.",
+            mcp_servers=["fetch"],
+        )
+    )
+
+    assert result == "Fetched content summary."
+    assert tool_calls == [("fetch", {"url": "https://www.jn.pt"})]
+    assert payloads[0]["tool_choice"] == "auto"
+    assert payloads[0]["tools"][0]["function"]["name"] == "fetch"
+    second_messages = payloads[1]["messages"]
+    assert any(message.get("role") == "tool" for message in second_messages)
+
+
+def test_llm_provider_generate_json_extracts_embedded_json_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_chat_completion(**kwargs) -> str:
+        return (
+            "I've fetched the content from www.sic.pt and will update the draft now: "
+            '{"assistant_message":"Fetched sic.pt.","summary":"sic.pt summary.","section_updates":[]}'
+        )
+
+    monkeypatch.setattr(llm_provider, "chat_completion", fake_chat_completion)
+
+    payload = asyncio.run(
+        llm_provider.generate_json(
+            system_prompt="Return JSON.",
+            user_prompt="Fetch sic.pt.",
+        )
+    )
+
+    assert payload["assistant_message"] == "Fetched sic.pt."
+    assert payload["summary"] == "sic.pt summary."
+    assert payload["section_updates"] == []
+
+
+def test_llm_provider_forces_finalization_after_repeated_tool_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    payloads: list[dict[str, object]] = []
+
+    class FakeResponse:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = payload
+            self.text = json.dumps(payload)
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return self._payload
+
+    responses = [
+        FakeResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": "call-fetch-1",
+                                    "type": "function",
+                                    "function": {"name": "fetch", "arguments": '{"url": "https://www.sic.pt"}'},
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+        ),
+        FakeResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": "call-fetch-2",
+                                    "type": "function",
+                                    "function": {"name": "fetch", "arguments": '{"url": "https://www.sic.pt"}'},
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+        ),
+        FakeResponse({"choices": [{"message": {"content": "Finalized after tool reuse."}}]}),
+    ]
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self) -> "FakeAsyncClient":
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def post(self, url: str, json: dict[str, object], headers: dict[str, str]) -> FakeResponse:
+            payloads.append(json)
+            return responses.pop(0)
+
+    class FakeGatewayClient:
+        async def list_tools(self) -> list[DockerMcpToolSpec]:
+            return [
+                DockerMcpToolSpec(
+                    name="fetch",
+                    description="Fetch a URL from the internet.",
+                    input_schema={"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]},
+                )
+            ]
+
+        async def call_tool(self, tool_name: str, arguments: dict[str, object]) -> DockerMcpToolCallResult:
+            return DockerMcpToolCallResult(text="Fetched sic.pt content")
+
+    @asynccontextmanager
+    async def fake_tool_client(server_names: list[str]):
+        yield FakeGatewayClient()
+
+    monkeypatch.setattr(docker_mcp_service, "tool_client", fake_tool_client)
+    monkeypatch.setattr(llm_provider_module.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = asyncio.run(
+        llm_provider.chat_completion(
+            system_prompt="Use tools when needed.",
+            user_prompt="Load data from sic.pt.",
+            mcp_servers=["fetch"],
+        )
+    )
+
+    assert result == "Finalized after tool reuse."
+    assert payloads[0]["tool_choice"] == "auto"
+    assert payloads[1]["tool_choice"] == "auto"
+    assert payloads[2]["tool_choice"] == "none"
+
+
+def test_llm_provider_executes_inline_tool_markup(monkeypatch: pytest.MonkeyPatch) -> None:
+    payloads: list[dict[str, object]] = []
+    tool_calls: list[tuple[str, dict[str, object]]] = []
+
+    class FakeResponse:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = payload
+            self.text = json.dumps(payload)
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return self._payload
+
+    responses = [
+        FakeResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                "I need to update the data retention content to include information from www.rtp.pt. "
+                                "Let me fetch that content first to understand what specific information should be included. "
+                                "<function=fetch> <parameter=url> http://www.rtp.pt </parameter> </function>"
+                            )
+                        }
+                    }
+                ]
+            }
+        ),
+        FakeResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": '{"assistant_message":"Fetched RTP.","summary":"rtp.pt summary.","section_updates":[]}'
+                        }
+                    }
+                ]
+            }
+        ),
+    ]
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self) -> "FakeAsyncClient":
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def post(self, url: str, json: dict[str, object], headers: dict[str, str]) -> FakeResponse:
+            payloads.append(json)
+            return responses.pop(0)
+
+    class FakeGatewayClient:
+        async def list_tools(self) -> list[DockerMcpToolSpec]:
+            return [
+                DockerMcpToolSpec(
+                    name="fetch",
+                    description="Fetch a URL from the internet.",
+                    input_schema={"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]},
+                )
+            ]
+
+        async def call_tool(self, tool_name: str, arguments: dict[str, object]) -> DockerMcpToolCallResult:
+            tool_calls.append((tool_name, arguments))
+            return DockerMcpToolCallResult(text="Fetched RTP content")
+
+    @asynccontextmanager
+    async def fake_tool_client(server_names: list[str]):
+        yield FakeGatewayClient()
+
+    monkeypatch.setattr(docker_mcp_service, "tool_client", fake_tool_client)
+    monkeypatch.setattr(llm_provider_module.httpx, "AsyncClient", FakeAsyncClient)
+
+    payload = asyncio.run(
+        llm_provider.generate_json(
+            system_prompt="Return JSON.",
+            user_prompt="Fetch rtp.pt.",
+            mcp_servers=["fetch"],
+        )
+    )
+
+    assert payload["assistant_message"] == "Fetched RTP."
+    assert tool_calls == [("fetch", {"url": "http://www.rtp.pt"})]
+    assert any(message.get("role") == "tool" for message in payloads[1]["messages"])
 
 
 def test_batch_workflow_generates_localized_archive(
@@ -33,7 +371,7 @@ def test_batch_workflow_generates_localized_archive(
 
     monkeypatch.setattr(rag_service, "index_examples", lambda *args, **kwargs: [])
 
-    async def fake_generate_json(*, system_prompt: str, user_prompt: str, temperature: float = 0.2):
+    async def fake_generate_json(*, system_prompt: str, user_prompt: str, temperature: float = 0.2, mcp_servers=None):
         if "assistant_message" in user_prompt:
             return {
                 "assistant_message": "Captured the core scope. Please confirm any audit retention rules.",
@@ -130,7 +468,7 @@ def test_chat_updates_section_when_llm_returns_title_instead_of_section_id(
 ) -> None:
     monkeypatch.setattr(rag_service, "index_examples", lambda *args, **kwargs: [])
 
-    async def fake_generate_json(*, system_prompt: str, user_prompt: str, temperature: float = 0.2):
+    async def fake_generate_json(*, system_prompt: str, user_prompt: str, temperature: float = 0.2, mcp_servers=None):
         if '"assistant_message"' in user_prompt:
             return {
                 "assistant_message": "Updated the requested field.",
@@ -183,7 +521,7 @@ def test_chat_falls_back_to_user_assignment_when_llm_returns_no_section_updates(
 ) -> None:
     monkeypatch.setattr(rag_service, "index_examples", lambda *args, **kwargs: [])
 
-    async def fake_generate_json(*, system_prompt: str, user_prompt: str, temperature: float = 0.2):
+    async def fake_generate_json(*, system_prompt: str, user_prompt: str, temperature: float = 0.2, mcp_servers=None):
         if '"assistant_message"' in user_prompt:
             return {
                 "assistant_message": "Updating the Project Overview field with the provided name.",

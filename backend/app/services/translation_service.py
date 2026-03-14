@@ -144,9 +144,13 @@ class TranslationService:
         good_examples: list[ExampleSnippet],
     ) -> dict[str, str]:
         payload = await llm_provider.generate_json(
-            system_prompt=self._build_llm_translation_system_prompt(language),
+            system_prompt=llm_provider.with_scenario_mcp_context(
+                self._build_llm_translation_system_prompt(language),
+                session.mcp_servers,
+            ),
             user_prompt=self._build_llm_translation_user_prompt(session, language, good_examples),
             temperature=0.1,
+            mcp_servers=session.mcp_servers,
         )
         translated_sections: dict[str, str] = {}
         for section in payload.get("sections") or []:

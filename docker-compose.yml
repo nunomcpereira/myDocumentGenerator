@@ -8,6 +8,9 @@ services:
     environment:
       LLM_BASE_URL: http://host.docker.internal:8050/v1
       DOCKER_CONFIG: /root/.docker
+      DOCKER_HOST: unix:///var/run/docker.sock
+      DOCKER_MCP_GATEWAY_URL: http://host.docker.internal:8811/mcp
+      DOCKER_MCP_GATEWAY_AUTH_TOKEN: ${MCP_GATEWAY_AUTH_TOKEN}
     ports:
       - "8000:8000"
     extra_hosts:

@@ -135,6 +135,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.15,
+            mcp_servers=session.mcp_servers,
         )
         result = ChatResult.model_validate(payload)
         llm_available = True
@@ -345,13 +346,14 @@ async def download_session_file(session_id: str, kind: str, file_name: str) -> F
 
 def build_chat_system_prompt(session) -> str:
     outline = "\n".join(f"- {section.id}: {section.title}" for section in session.template_structure.sections)
-    return (
+    base_prompt = (
         "You are an interviewing analyst helping complete a structured specification document. "
         "Ask concise follow-up questions only when information is missing, and update the draft with any user-provided facts. "
         "When the user asks to set or replace a value in a named section, you must return a section_updates entry for that section. "
         "Always use the exact section_id values provided below whenever possible. Return JSON with assistant_message, summary, and section_updates.\n"
         f"Template outline:\n{outline}"
     )
+    return llm_provider.with_scenario_mcp_context(base_prompt, session.mcp_servers)
 
 
 def build_chat_user_prompt(session, message: str, good_examples, negative_constraints: list[str]) -> str:
