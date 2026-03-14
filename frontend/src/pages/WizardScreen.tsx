@@ -1,7 +1,7 @@
 import { ArrowRight, Compass, FolderOpen } from "lucide-react";
 
 import { ScenarioControls } from "../components/ScenarioControls";
-import type { ScenarioSummary } from "../lib/types";
+import type { McpServerCatalogResponse, ScenarioSummary } from "../lib/types";
 
 type WizardScreenProps = {
   scenarios: ScenarioSummary[];
@@ -10,6 +10,9 @@ type WizardScreenProps = {
   onLoadScenario: () => Promise<void>;
   onStartFromScratch: () => void;
   scenarioBusy: boolean;
+  mcpCatalog: McpServerCatalogResponse | null;
+  selectedMcpServers: string[];
+  onSelectedMcpServersChange: (serverNames: string[]) => void;
 };
 
 export function WizardScreen({
@@ -19,6 +22,9 @@ export function WizardScreen({
   onLoadScenario,
   onStartFromScratch,
   scenarioBusy,
+  mcpCatalog,
+  selectedMcpServers,
+  onSelectedMcpServersChange,
 }: WizardScreenProps) {
   return (
     <div>
@@ -76,6 +82,9 @@ export function WizardScreen({
                   hideHeader
                   hideManualInput
                   hideScenarioChips
+                  mcpCatalog={mcpCatalog}
+                  selectedMcpServers={selectedMcpServers}
+                  onSelectedMcpServersChange={onSelectedMcpServersChange}
                 />
               </div>
             </div>

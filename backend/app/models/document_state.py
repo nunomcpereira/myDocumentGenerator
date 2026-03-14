@@ -50,6 +50,7 @@ class SessionContext(BaseModel):
     bad_example_paths: list[Path] = Field(default_factory=list)
     scenario_id: str | None = None
     prompt: str | None = None
+    mcp_servers: list[str] = Field(default_factory=list)
     export_languages: list[str] = Field(default_factory=list)
     output_file_name: str | None = None
     warnings: list[str] = Field(default_factory=list)
@@ -165,6 +166,7 @@ class ScenarioSummary(BaseModel):
     scenario_id: str
     template_file_name: str | None = None
     prompt: str | None = None
+    mcp_servers: list[str] = Field(default_factory=list)
     target_languages: list[str] = Field(default_factory=list)
     output_file_name: str | None = None
     updated_at: datetime
@@ -174,6 +176,7 @@ class SaveScenarioRequest(BaseModel):
     session_id: str
     scenario_id: str
     prompt: str | None = None
+    mcp_servers: list[str] = Field(default_factory=list)
     target_languages: list[str] = Field(default_factory=list)
     output_file_name: str | None = None
 
@@ -182,6 +185,7 @@ class SaveScenarioResponse(BaseModel):
     scenario_id: str
     session_id: str
     prompt: str | None = None
+    mcp_servers: list[str] = Field(default_factory=list)
     target_languages: list[str] = Field(default_factory=list)
     output_file_name: str | None = None
     updated_at: datetime
@@ -199,6 +203,22 @@ class LoadScenarioResponse(BaseModel):
     preview_markdown: str
     warnings: list[str] = Field(default_factory=list)
     prompt: str | None = None
+    mcp_servers: list[str] = Field(default_factory=list)
     target_languages: list[str] = Field(default_factory=list)
     loaded_files: list[LoadedFileReference] = Field(default_factory=list)
     output_file_name: str | None = None
+
+
+class McpServerSummary(BaseModel):
+    name: str
+    description: str | None = None
+    oauth: str | None = None
+    secrets: str | None = None
+    config: str | None = None
+
+
+class McpServerCatalogResponse(BaseModel):
+    available: bool = False
+    source: str = "docker-mcp-cli"
+    detail: str | None = None
+    servers: list[McpServerSummary] = Field(default_factory=list)

@@ -19,6 +19,7 @@ from app.models.document_state import (
     SessionContext,
     TemplateStructure,
 )
+from app.services.docker_mcp_service import docker_mcp_service
 from app.services.ingestion_service import ingestion_service
 
 
@@ -31,7 +32,7 @@ class ScenarioService:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT scenario_id, template_file_name, prompt, target_languages_json, output_file_name, updated_at
+                SELECT scenario_id, template_file_name, prompt, mcp_servers_json, target_languages_json, output_file_name, updated_at
                 FROM scenarios
                 ORDER BY updated_at DESC
                 """
@@ -41,9 +42,10 @@ class ScenarioService:
                 scenario_id=row[0],
                 template_file_name=row[1],
                 prompt=row[2],
-                target_languages=json.loads(row[3] or "[]"),
-                output_file_name=row[4],
-                updated_at=datetime.fromisoformat(row[5]),
+                mcp_servers=json.loads(row[3] or "[]"),
+                target_languages=json.loads(row[4] or "[]"),
+                output_file_name=row[5],
+                updated_at=datetime.fromisoformat(row[6]),
             )
             for row in rows
         ]
@@ -54,6 +56,7 @@ class ScenarioService:
         scenario_id: str,
         *,
         prompt: str | None,
+        mcp_servers: list[str],
         target_languages: list[str],
         output_file_name: str | None,
     ) -> SaveScenarioResponse:
@@ -79,6 +82,7 @@ class ScenarioService:
         updated_at = datetime.now(UTC)
         session.scenario_id = normalized_id
         session.prompt = prompt or session.prompt
+        session.mcp_servers = self._normalize_mcp_servers(mcp_servers)
         session.export_languages = target_languages or session.export_languages
         session.output_file_name = output_file_name or session.output_file_name or session.template_path.stem
         self._sync_generated_artifacts(session.session_id, scenario_dir)
@@ -96,11 +100,12 @@ class ScenarioService:
                     template_structure_json,
                     draft_state_json,
                     prompt,
+                    mcp_servers_json,
                     target_languages_json,
                     output_file_name,
                     warnings_json,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(scenario_id) DO UPDATE SET
                     template_file_name = excluded.template_file_name,
                     template_relative_path = excluded.template_relative_path,
@@ -110,6 +115,7 @@ class ScenarioService:
                     template_structure_json = excluded.template_structure_json,
                     draft_state_json = excluded.draft_state_json,
                     prompt = excluded.prompt,
+                    mcp_servers_json = excluded.mcp_servers_json,
                     target_languages_json = excluded.target_languages_json,
                     output_file_name = excluded.output_file_name,
                     warnings_json = excluded.warnings_json,
@@ -125,6 +131,7 @@ class ScenarioService:
                     json.dumps(session.template_structure.model_dump(mode="json")),
                     json.dumps(session.draft_state.model_dump(mode="json")),
                     session.prompt,
+                    json.dumps(session.mcp_servers),
                     json.dumps(session.export_languages),
                     session.output_file_name,
                     json.dumps(session.warnings),
@@ -137,6 +144,7 @@ class ScenarioService:
             scenario_id=normalized_id,
             session_id=session.session_id,
             prompt=session.prompt,
+            mcp_servers=session.mcp_servers,
             target_languages=session.export_languages,
             output_file_name=session.output_file_name,
             updated_at=updated_at,
@@ -155,6 +163,7 @@ class ScenarioService:
                        template_structure_json,
                        draft_state_json,
                        prompt,
+                       mcp_servers_json,
                        target_languages_json,
                        output_file_name,
                        warnings_json
@@ -188,6 +197,8 @@ class ScenarioService:
 
         draft_state = DocumentDraftState.model_validate(json.loads(row[5]))
         draft_state.session_id = session_id
+        mcp_servers = self._normalize_mcp_servers(json.loads(row[7] or "[]"))
+        warnings.extend(self._build_mcp_server_warnings(mcp_servers))
 
         return SessionContext(
             session_id=session_id,
@@ -199,9 +210,10 @@ class ScenarioService:
             good_example_paths=good_paths,
             bad_example_paths=bad_paths,
             prompt=row[6],
-            export_languages=json.loads(row[7] or "[]"),
-            output_file_name=row[8],
-            warnings=json.loads(row[9] or "[]") + warnings,
+            mcp_servers=mcp_servers,
+            export_languages=json.loads(row[8] or "[]"),
+            output_file_name=row[9],
+            warnings=json.loads(row[10] or "[]") + warnings,
         )
 
     def build_load_response(self, session: SessionContext, preview_markdown: str, loaded_files: list[LoadedFileReference]) -> LoadScenarioResponse:
@@ -213,6 +225,7 @@ class ScenarioService:
             preview_markdown=preview_markdown,
             warnings=session.warnings,
             prompt=session.prompt,
+            mcp_servers=session.mcp_servers,
             target_languages=session.export_languages,
             loaded_files=loaded_files,
             output_file_name=session.output_file_name,
@@ -264,6 +277,7 @@ class ScenarioService:
                     template_structure_json TEXT NOT NULL,
                     draft_state_json TEXT NOT NULL,
                     prompt TEXT,
+                    mcp_servers_json TEXT NOT NULL,
                     target_languages_json TEXT NOT NULL,
                     output_file_name TEXT,
                     warnings_json TEXT NOT NULL,
@@ -286,6 +300,8 @@ class ScenarioService:
                 connection.execute("ALTER TABLE scenarios ADD COLUMN output_file_name TEXT")
             if "enhancement_document_relative_path" not in columns:
                 connection.execute("ALTER TABLE scenarios ADD COLUMN enhancement_document_relative_path TEXT")
+            if "mcp_servers_json" not in columns:
+                connection.execute("ALTER TABLE scenarios ADD COLUMN mcp_servers_json TEXT NOT NULL DEFAULT '[]'")
             connection.commit()
 
     def _connect(self) -> sqlite3.Connection:
@@ -322,6 +338,34 @@ class ScenarioService:
         if not source_dir.exists():
             return
         shutil.copytree(source_dir, target_dir)
+
+    @staticmethod
+    def _normalize_mcp_servers(mcp_servers: list[str]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in mcp_servers:
+            candidate = item.strip()
+            if not candidate or candidate in seen:
+                continue
+            normalized.append(candidate)
+            seen.add(candidate)
+        return normalized
+
+    def _build_mcp_server_warnings(self, mcp_servers: list[str]) -> list[str]:
+        if not mcp_servers:
+            return []
+
+        catalog = docker_mcp_service.list_servers()
+        if not catalog.available:
+            return [
+                "Saved MCP server context could not be verified because Docker MCP discovery is unavailable from the backend."
+            ]
+
+        available_names = {server.name for server in catalog.servers}
+        missing = [server_name for server_name in mcp_servers if server_name not in available_names]
+        if not missing:
+            return []
+        return [f"Saved MCP servers are not currently available from Docker MCP: {', '.join(missing)}."]
 
 
 scenario_service = ScenarioService()

@@ -2,7 +2,7 @@ import { BotMessageSquare, MoonStar, Save, Settings2, SunMedium } from "lucide-r
 import { useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 
-import { clearCustomCss, getCustomCss, getTranslationConfiguration, listScenarios, loadScenario, saveScenario, uploadCustomCss } from "./api/client";
+import { clearCustomCss, getCustomCss, getTranslationConfiguration, listMcpServers, listScenarios, loadScenario, saveScenario, uploadCustomCss } from "./api/client";
 import { ProgressStepper } from "./components/ProgressStepper";
 import { ScenarioControls } from "./components/ScenarioControls";
 import { TranslationConfigurationDialog } from "./components/TranslationConfigurationDialog";
@@ -10,12 +10,13 @@ import { ExportScreen } from "./pages/ExportScreen";
 import { IngestionScreen } from "./pages/IngestionScreen";
 import { RefinementScreen } from "./pages/RefinementScreen";
 import { WizardScreen } from "./pages/WizardScreen";
-import type { ScenarioSummary, SessionSnapshot, TranslationConfigurationResponse } from "./lib/types";
+import type { McpServerCatalogResponse, ScenarioSummary, SessionSnapshot, TranslationConfigurationResponse } from "./lib/types";
 
 const initialSnapshot: SessionSnapshot = {
   sessionId: null,
   scenarioId: "",
   prompt: "",
+  mcpServers: [],
   exportLanguages: ["English", "Spanish", "French"],
   outputFileName: "localized-specification",
   loadedFiles: [],
@@ -70,6 +71,7 @@ export default function App() {
         ...parsed,
         scenarioId: parsed.scenarioId ?? "",
         prompt: parsed.prompt ?? "",
+        mcpServers: Array.isArray(parsed.mcpServers) ? parsed.mcpServers : [],
         exportLanguages: Array.isArray(parsed.exportLanguages) && parsed.exportLanguages.length > 0
           ? parsed.exportLanguages
           : initialSnapshot.exportLanguages,
@@ -91,10 +93,12 @@ export default function App() {
   const [translationConfigurationBusy, setTranslationConfigurationBusy] = useState(false);
   const [translationConfigurationError, setTranslationConfigurationError] = useState<string | null>(null);
   const [customCss, setCustomCss] = useState<string | null>(null);
+  const [mcpCatalog, setMcpCatalog] = useState<McpServerCatalogResponse | null>(null);
 
   useEffect(() => {
     void refreshScenarios();
     void loadCustomCssTheme();
+    void refreshMcpCatalog();
   }, []);
 
   useEffect(() => {
@@ -112,6 +116,19 @@ export default function App() {
       setScenarios(await listScenarios());
     } catch {
       setScenarios([]);
+    }
+  }
+
+  async function refreshMcpCatalog() {
+    try {
+      setMcpCatalog(await listMcpServers());
+    } catch (caught) {
+      setMcpCatalog({
+        available: false,
+        source: "docker-mcp-cli",
+        detail: caught instanceof Error ? caught.message : "Failed to discover Docker MCP servers.",
+        servers: [],
+      });
     }
   }
 
@@ -201,6 +218,7 @@ export default function App() {
         sessionId: response.session_id,
         scenarioId: response.scenario_id,
         prompt: response.prompt ?? "",
+        mcpServers: response.mcp_servers ?? [],
         exportLanguages: response.target_languages.length > 0 ? response.target_languages : initialSnapshot.exportLanguages,
         outputFileName: response.output_file_name ?? initialSnapshot.outputFileName,
         loadedFiles: response.loaded_files,
@@ -226,6 +244,7 @@ export default function App() {
         sessionId: snapshot.sessionId,
         scenarioId: snapshot.scenarioId,
         prompt: snapshot.prompt,
+        mcpServers: snapshot.mcpServers,
         targetLanguages: snapshot.exportLanguages,
         outputFileName: snapshot.outputFileName,
       });
@@ -233,6 +252,7 @@ export default function App() {
         ...current,
         scenarioId: response.scenario_id,
         prompt: response.prompt ?? current.prompt,
+        mcpServers: response.mcp_servers,
         exportLanguages: response.target_languages,
         outputFileName: response.output_file_name ?? current.outputFileName,
       }));
@@ -309,6 +329,9 @@ export default function App() {
             mode="save-only"
             title="Save the current scenario"
             description="Capture the template, enhancement document, examples, draft state, and export settings under a reusable scenario ID."
+            mcpCatalog={mcpCatalog}
+            selectedMcpServers={snapshot.mcpServers}
+            onSelectedMcpServersChange={(mcpServers) => setSnapshot((current) => ({ ...current, mcpServers }))}
           />
         </div>
       ) : null}
@@ -332,6 +355,9 @@ export default function App() {
               onLoadScenario={handleLoadScenario}
               onStartFromScratch={() => navigate("/ingest")}
               scenarioBusy={scenarioBusy}
+              mcpCatalog={mcpCatalog}
+              selectedMcpServers={snapshot.mcpServers}
+              onSelectedMcpServersChange={(mcpServers) => setSnapshot((current) => ({ ...current, mcpServers }))}
             />
           }
         />

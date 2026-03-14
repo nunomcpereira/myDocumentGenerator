@@ -36,6 +36,7 @@ export function IngestionScreen({ onInitialized }: IngestionScreenProps) {
         sessionId: response.session_id,
         scenarioId: "",
         prompt: "",
+        mcpServers: [],
         exportLanguages: ["English", "Spanish", "French"],
         outputFileName: response.output_file_name ?? template.name.replace(/\.[^.]+$/, ""),
         loadedFiles: response.loaded_files,

@@ -16,6 +16,8 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from app.main import app
+from app.models.document_state import McpServerCatalogResponse, McpServerSummary
+from app.services.docker_mcp_service import docker_mcp_service
 from app.services.llm_provider import llm_provider
 from app.services.rag_service import rag_service
 from scripts.run_batch_workflow import run_batch_workflow
@@ -33,6 +35,15 @@ def test_save_and_load_scenario_persists_prompt_languages_and_draft(
     working_template_path = tmp_path / sample_docx_template_path.name
     shutil.copyfile(sample_docx_template_path, working_template_path)
     db_path = (isolated_storage / "scenarios" / "scenarios.db")
+
+    monkeypatch.setattr(
+        docker_mcp_service,
+        "list_servers",
+        lambda: McpServerCatalogResponse(
+            available=True,
+            servers=[McpServerSummary(name="fetch", description="Fetches URLs."), McpServerSummary(name="youtube_transcript")],
+        ),
+    )
 
     monkeypatch.setattr(rag_service, "index_examples", lambda *args, **kwargs: [])
 
@@ -75,6 +86,7 @@ def test_save_and_load_scenario_persists_prompt_languages_and_draft(
                 "session_id": session_id,
                 "scenario_id": "Nuno Scenario 01",
                 "prompt": docx_prompt,
+                "mcp_servers": ["fetch", "youtube_transcript"],
                 "target_languages": ["Spanish", "French"],
                 "output_file_name": "customer-onboarding-spec",
             },
@@ -91,7 +103,7 @@ def test_save_and_load_scenario_persists_prompt_languages_and_draft(
     loaded_payload = load_response.json()
     with sqlite3.connect(db_path) as connection:
         row = connection.execute(
-            "SELECT output_file_name, target_languages_json FROM scenarios WHERE scenario_id = ?",
+            "SELECT output_file_name, target_languages_json, mcp_servers_json FROM scenarios WHERE scenario_id = ?",
             ("nuno-scenario-01",),
         ).fetchone()
 
@@ -100,6 +112,7 @@ def test_save_and_load_scenario_persists_prompt_languages_and_draft(
     assert any(scenario["scenario_id"] == "nuno-scenario-01" for scenario in scenarios)
     assert loaded_payload["scenario_id"] == "nuno-scenario-01"
     assert loaded_payload["prompt"] == docx_prompt
+    assert loaded_payload["mcp_servers"] == ["fetch", "youtube_transcript"]
     assert loaded_payload["target_languages"] == ["Spanish", "French"]
     assert loaded_payload["output_file_name"] == "customer-onboarding-spec"
     assert loaded_payload["draft_state"]["sections"][0]["content"] == "Saved scenario overview."
@@ -111,6 +124,7 @@ def test_save_and_load_scenario_persists_prompt_languages_and_draft(
     assert row is not None
     assert row[0] == "customer-onboarding-spec"
     assert "Spanish" in row[1]
+    assert "fetch" in row[2]
 
 
 def test_save_and_load_scenario_restores_generated_export_artifacts(

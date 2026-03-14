@@ -7,6 +7,7 @@ services:
       - ./backend/.env
     environment:
       LLM_BASE_URL: http://host.docker.internal:8050/v1
+      DOCKER_CONFIG: /root/.docker
     ports:
       - "8000:8000"
     extra_hosts:
@@ -14,6 +15,8 @@ services:
     volumes:
       - ./backend/data:/app/data
       - ./scenarios:/scenarios
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${HOME}/.docker:/root/.docker:ro
 
   frontend:
     build:

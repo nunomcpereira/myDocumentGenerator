@@ -4,6 +4,7 @@ import type {
   ExportResponse,
   GeneratedExportFile,
   IngestResponse,
+  McpServerCatalogResponse,
   LoadScenarioResponse,
   SaveScenarioResponse,
   ScenarioSummary,
@@ -79,10 +80,16 @@ export async function loadScenario(scenarioId: string): Promise<LoadScenarioResp
   return handleResponse<LoadScenarioResponse>(response);
 }
 
+export async function listMcpServers(): Promise<McpServerCatalogResponse> {
+  const response = await fetch(`${API_BASE_URL}/mcp/servers`);
+  return handleResponse<McpServerCatalogResponse>(response);
+}
+
 export async function saveScenario(params: {
   sessionId: string;
   scenarioId: string;
   prompt: string;
+  mcpServers: string[];
   targetLanguages: string[];
   outputFileName: string;
 }): Promise<SaveScenarioResponse> {
@@ -95,6 +102,7 @@ export async function saveScenario(params: {
       session_id: params.sessionId,
       scenario_id: params.scenarioId,
       prompt: params.prompt,
+      mcp_servers: params.mcpServers,
       target_languages: params.targetLanguages,
       output_file_name: params.outputFileName,
     }),

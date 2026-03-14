@@ -101,6 +101,7 @@ export type ScenarioSummary = {
   scenario_id: string;
   template_file_name?: string | null;
   prompt?: string | null;
+  mcp_servers: string[];
   target_languages: string[];
   output_file_name?: string | null;
   updated_at: string;
@@ -110,6 +111,7 @@ export type SaveScenarioResponse = {
   scenario_id: string;
   session_id: string;
   prompt?: string | null;
+  mcp_servers: string[];
   target_languages: string[];
   output_file_name?: string | null;
   updated_at: string;
@@ -123,15 +125,32 @@ export type LoadScenarioResponse = {
   preview_markdown: string;
   warnings: string[];
   prompt?: string | null;
+  mcp_servers: string[];
   target_languages: string[];
   loaded_files: LoadedFileReference[];
   output_file_name?: string | null;
+};
+
+export type McpServerSummary = {
+  name: string;
+  description?: string | null;
+  oauth?: string | null;
+  secrets?: string | null;
+  config?: string | null;
+};
+
+export type McpServerCatalogResponse = {
+  available: boolean;
+  source: string;
+  detail?: string | null;
+  servers: McpServerSummary[];
 };
 
 export type SessionSnapshot = {
   sessionId: string | null;
   scenarioId: string;
   prompt: string;
+  mcpServers: string[];
   exportLanguages: string[];
   outputFileName: string;
   loadedFiles: LoadedFileReference[];

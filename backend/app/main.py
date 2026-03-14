@@ -21,12 +21,14 @@ from app.models.document_state import (
     GeneratedExportFile,
     IngestResponse,
     LoadedFileReference,
+    McpServerCatalogResponse,
     LoadScenarioRequest,
     SaveScenarioRequest,
     SaveScenarioResponse,
     ScenarioSummary,
     TranslationConfigurationResponse,
 )
+from app.services.docker_mcp_service import docker_mcp_service
 from app.services.ingestion_service import ingestion_service
 from app.services.llm_provider import llm_provider
 from app.services.rag_service import rag_service
@@ -288,6 +290,11 @@ async def list_scenarios() -> list[ScenarioSummary]:
     return scenario_service.list_scenarios()
 
 
+@app.get("/mcp/servers", response_model=McpServerCatalogResponse)
+async def list_mcp_servers() -> McpServerCatalogResponse:
+    return docker_mcp_service.list_servers()
+
+
 @app.post("/scenarios/save", response_model=SaveScenarioResponse)
 async def save_scenario(request: SaveScenarioRequest) -> SaveScenarioResponse:
     try:
@@ -300,6 +307,7 @@ async def save_scenario(request: SaveScenarioRequest) -> SaveScenarioResponse:
             session,
             request.scenario_id,
             prompt=request.prompt,
+            mcp_servers=request.mcp_servers,
             target_languages=request.target_languages,
             output_file_name=request.output_file_name,
         )

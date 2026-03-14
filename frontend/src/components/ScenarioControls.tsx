@@ -1,6 +1,6 @@
 import { FolderOpen, LoaderCircle, Save } from "lucide-react";
 
-import type { ScenarioSummary } from "../lib/types";
+import type { McpServerCatalogResponse, ScenarioSummary } from "../lib/types";
 
 type ScenarioControlsProps = {
   scenarios: ScenarioSummary[];
@@ -17,6 +17,9 @@ type ScenarioControlsProps = {
   hideHeader?: boolean;
   hideManualInput?: boolean;
   hideScenarioChips?: boolean;
+  mcpCatalog?: McpServerCatalogResponse | null;
+  selectedMcpServers?: string[];
+  onSelectedMcpServersChange?: (serverNames: string[]) => void;
 };
 
 export function ScenarioControls({
@@ -34,9 +37,25 @@ export function ScenarioControls({
   hideHeader = false,
   hideManualInput = false,
   hideScenarioChips = false,
+  mcpCatalog = null,
+  selectedMcpServers = [],
+  onSelectedMcpServersChange,
 }: ScenarioControlsProps) {
   const showLoad = mode !== "save-only";
   const showSave = mode !== "load-only";
+  const unavailableSelectedServers = selectedMcpServers.filter(
+    (serverName) => !mcpCatalog?.servers.some((server) => server.name === serverName),
+  );
+
+  function toggleMcpServer(serverName: string) {
+    if (!onSelectedMcpServersChange) {
+      return;
+    }
+    const nextSelection = selectedMcpServers.includes(serverName)
+      ? selectedMcpServers.filter((item) => item !== serverName)
+      : [...selectedMcpServers, serverName];
+    onSelectedMcpServersChange(nextSelection);
+  }
 
   return (
     <div
@@ -96,6 +115,55 @@ export function ScenarioControls({
           ))}
         </div>
       )}
+      {mcpCatalog ? (
+        <div className="rounded-[1.5rem] border border-white/60 bg-white/60 p-4 backdrop-blur">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-[0.24em] text-steel">MCP Context</p>
+              <h3 className="mt-2 font-serif text-xl text-ink">Docker MCP servers for this scenario</h3>
+              <p className="mt-2 text-sm leading-6 text-steel">
+                Save the selected MCP servers with the scenario so the same tool context can be restored later.
+              </p>
+            </div>
+            <div className="text-xs uppercase tracking-[0.2em] text-steel">
+              {mcpCatalog.available ? `${mcpCatalog.servers.length} available` : "Unavailable"}
+            </div>
+          </div>
+
+          {mcpCatalog.available ? (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {mcpCatalog.servers.length === 0 ? <p className="text-sm text-steel">No Docker MCP servers are currently enabled.</p> : null}
+              {mcpCatalog.servers.map((server) => {
+                const selected = selectedMcpServers.includes(server.name);
+                return (
+                  <button
+                    key={server.name}
+                    type="button"
+                    onClick={() => toggleMcpServer(server.name)}
+                    className={[
+                      "rounded-2xl border px-4 py-3 text-left text-sm transition",
+                      selected ? "border-ink bg-ink text-sand" : "border-stone-300 bg-white text-ink hover:border-ember",
+                    ].join(" ")}
+                  >
+                    <span className="block font-semibold">{server.name}</span>
+                    {server.description ? <span className="mt-1 block text-xs opacity-80">{server.description}</span> : null}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-steel">
+              {mcpCatalog.detail ?? "Docker MCP discovery is currently unavailable from the backend."}
+            </p>
+          )}
+
+          {unavailableSelectedServers.length > 0 ? (
+            <p className="mt-4 text-sm text-amber-800">
+              Saved selection not currently available: {unavailableSelectedServers.join(", ")}.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       <div className="flex flex-wrap gap-3">
         {showLoad ? (
           <button
