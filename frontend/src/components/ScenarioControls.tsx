@@ -106,9 +106,12 @@ export function ScenarioControls({
               type="button"
               onClick={() => onScenarioIdChange(scenario.scenario_id)}
               className={[
-                "rounded-full border px-3 py-1 text-xs transition",
-                scenario.scenario_id === scenarioId ? "border-ink bg-ink text-sand" : "border-stone-300 bg-white text-ink hover:border-ember",
+                "selection-chip rounded-full border px-3 py-1 text-xs font-medium transition",
+                scenario.scenario_id === scenarioId
+                  ? "selection-chip-active border-ink bg-ink text-sand"
+                  : "selection-chip-inactive border-stone-300 bg-white text-ink hover:border-ember",
               ].join(" ")}
+              aria-pressed={scenario.scenario_id === scenarioId}
             >
               {scenario.scenario_id}
             </button>
@@ -141,9 +144,12 @@ export function ScenarioControls({
                     type="button"
                     onClick={() => toggleMcpServer(server.name)}
                     className={[
-                      "rounded-2xl border px-4 py-3 text-left text-sm transition",
-                      selected ? "border-ink bg-ink text-sand" : "border-stone-300 bg-white text-ink hover:border-ember",
+                      "selection-chip rounded-2xl border px-4 py-3 text-left text-sm transition",
+                      selected
+                        ? "selection-chip-active border-ink bg-ink text-sand"
+                        : "selection-chip-inactive border-stone-300 bg-white text-ink hover:border-ember",
                     ].join(" ")}
+                    aria-pressed={selected}
                   >
                     <span className="block font-semibold">{server.name}</span>
                     {server.description ? <span className="mt-1 block text-xs opacity-80">{server.description}</span> : null}

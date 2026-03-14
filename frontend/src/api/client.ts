@@ -13,6 +13,41 @@ import type {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
+type RequestOptions = {
+  retryOnNetworkError?: number;
+};
+
+function isNetworkError(error: unknown): error is TypeError {
+  return error instanceof TypeError;
+}
+
+function normalizeNetworkError(error: unknown): Error {
+  if (!isNetworkError(error)) {
+    return error instanceof Error ? error : new Error("Unexpected API failure.");
+  }
+  return new Error(`Unable to reach the backend at ${API_BASE_URL}. Check that the backend container is running and reachable from the browser.`);
+}
+
+async function requestJson<T>(input: string, init?: RequestInit, options: RequestOptions = {}): Promise<T> {
+  const attempts = Math.max(1, (options.retryOnNetworkError ?? 0) + 1);
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await fetch(input, init);
+      return await handleResponse<T>(response);
+    } catch (error) {
+      lastError = error;
+      if (!isNetworkError(error) || attempt === attempts) {
+        throw normalizeNetworkError(error);
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 350));
+    }
+  }
+
+  throw normalizeNetworkError(lastError);
+}
+
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
@@ -43,46 +78,41 @@ export async function ingestDocuments(params: {
 }
 
 export async function sendChatMessage(sessionId: string, message: string): Promise<ChatResponse> {
-  const response = await fetch(`${API_BASE_URL}/chat`, {
+  return requestJson<ChatResponse>(`${API_BASE_URL}/chat`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ session_id: sessionId, message }),
   });
-  return handleResponse<ChatResponse>(response);
 }
 
 export async function exportDocuments(sessionId: string, targetLanguages: string[], outputFileName: string): Promise<ExportResponse> {
-  const response = await fetch(`${API_BASE_URL}/export`, {
+  return requestJson<ExportResponse>(`${API_BASE_URL}/export`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ session_id: sessionId, target_languages: targetLanguages, output_file_name: outputFileName }),
-  });
-  return handleResponse<ExportResponse>(response);
+  }, { retryOnNetworkError: 1 });
 }
 
 export async function listScenarios(): Promise<ScenarioSummary[]> {
-  const response = await fetch(`${API_BASE_URL}/scenarios`);
-  return handleResponse<ScenarioSummary[]>(response);
+  return requestJson<ScenarioSummary[]>(`${API_BASE_URL}/scenarios`);
 }
 
 export async function loadScenario(scenarioId: string): Promise<LoadScenarioResponse> {
-  const response = await fetch(`${API_BASE_URL}/scenarios/load`, {
+  return requestJson<LoadScenarioResponse>(`${API_BASE_URL}/scenarios/load`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ scenario_id: scenarioId }),
   });
-  return handleResponse<LoadScenarioResponse>(response);
 }
 
 export async function listMcpServers(): Promise<McpServerCatalogResponse> {
-  const response = await fetch(`${API_BASE_URL}/mcp/servers`);
-  return handleResponse<McpServerCatalogResponse>(response);
+  return requestJson<McpServerCatalogResponse>(`${API_BASE_URL}/mcp/servers`);
 }
 
 export async function saveScenario(params: {
@@ -93,7 +123,7 @@ export async function saveScenario(params: {
   targetLanguages: string[];
   outputFileName: string;
 }): Promise<SaveScenarioResponse> {
-  const response = await fetch(`${API_BASE_URL}/scenarios/save`, {
+  return requestJson<SaveScenarioResponse>(`${API_BASE_URL}/scenarios/save`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -107,40 +137,34 @@ export async function saveScenario(params: {
       output_file_name: params.outputFileName,
     }),
   });
-  return handleResponse<SaveScenarioResponse>(response);
 }
 
 export async function getTranslationConfiguration(): Promise<TranslationConfigurationResponse> {
-  const response = await fetch(`${API_BASE_URL}/config/translation`);
-  return handleResponse<TranslationConfigurationResponse>(response);
+  return requestJson<TranslationConfigurationResponse>(`${API_BASE_URL}/config/translation`);
 }
 
 export async function getCustomCss(): Promise<CustomCssResponse> {
-  const response = await fetch(`${API_BASE_URL}/config/custom-css`);
-  return handleResponse<CustomCssResponse>(response);
+  return requestJson<CustomCssResponse>(`${API_BASE_URL}/config/custom-css`);
 }
 
 export async function uploadCustomCss(file: File): Promise<TranslationConfigurationResponse> {
   const formData = new FormData();
   formData.append("custom_css", file);
 
-  const response = await fetch(`${API_BASE_URL}/config/custom-css`, {
+  return requestJson<TranslationConfigurationResponse>(`${API_BASE_URL}/config/custom-css`, {
     method: "POST",
     body: formData,
   });
-  return handleResponse<TranslationConfigurationResponse>(response);
 }
 
 export async function clearCustomCss(): Promise<TranslationConfigurationResponse> {
-  const response = await fetch(`${API_BASE_URL}/config/custom-css`, {
+  return requestJson<TranslationConfigurationResponse>(`${API_BASE_URL}/config/custom-css`, {
     method: "DELETE",
   });
-  return handleResponse<TranslationConfigurationResponse>(response);
 }
 
 export async function listExportFiles(sessionId: string): Promise<GeneratedExportFile[]> {
-  const response = await fetch(`${API_BASE_URL}/export/${sessionId}/files`);
-  return handleResponse<GeneratedExportFile[]>(response);
+  return requestJson<GeneratedExportFile[]>(`${API_BASE_URL}/export/${sessionId}/files`);
 }
 
 export function buildExportDownloadUrl(sessionId: string): string {

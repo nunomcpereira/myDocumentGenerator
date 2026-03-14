@@ -288,7 +288,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setTheme((current) => (current === "light" ? "dark" : "light"))}
-              className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-ink shadow-panel backdrop-blur transition hover:border-ember"
+              className="ui-toolbar-button inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-ink shadow-panel backdrop-blur transition hover:border-ember"
               aria-label={theme === "light" ? "Switch to dark theme" : "Switch to white theme"}
             >
               {theme === "light" ? <MoonStar className="h-4 w-4" /> : <SunMedium className="h-4 w-4" />}
@@ -297,7 +297,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => void handleOpenConfiguration()}
-              className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-ink shadow-panel backdrop-blur transition hover:border-ember"
+              className="ui-toolbar-button inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-ink shadow-panel backdrop-blur transition hover:border-ember"
             >
               <Settings2 className="h-4 w-4" />
               Configuration
@@ -306,7 +306,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setSaveScenarioOpen((current) => !current)}
-                className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-ink shadow-panel backdrop-blur transition hover:border-ember"
+                className="ui-toolbar-button inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-ink shadow-panel backdrop-blur transition hover:border-ember"
               >
                 <Save className="h-4 w-4" />
                 {saveScenarioOpen ? "Hide save scenario" : "Save scenario"}

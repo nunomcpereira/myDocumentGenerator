@@ -32,6 +32,7 @@ export function ExportScreen({
   }
 
   const downloadUrl = useMemo(() => buildExportDownloadUrl(snapshot.sessionId!), [snapshot.sessionId]);
+  const effectiveOutputFileName = outputFileName.trim() || "localized-specification";
 
   useEffect(() => {
     let cancelled = false;
@@ -69,9 +70,8 @@ export function ExportScreen({
   async function handleExport() {
     setBusy(true);
     setError(null);
-    setArchiveReady(false);
     try {
-      const response = await exportDocuments(snapshot.sessionId!, selectedLanguages, outputFileName.trim() || "localized-specification");
+      const response = await exportDocuments(snapshot.sessionId!, selectedLanguages, effectiveOutputFileName);
       setGeneratedFiles(response.generated_documents);
       setArchiveReady(true);
     } catch (caught) {
@@ -83,7 +83,7 @@ export function ExportScreen({
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_0.9fr]">
-      <section className="rounded-[2rem] border border-white/60 bg-white/75 p-8 shadow-panel backdrop-blur">
+      <section className="panel-surface rounded-[2rem] border border-white/60 bg-white/75 p-8 shadow-panel backdrop-blur">
         <p className="text-xs uppercase tracking-[0.24em] text-steel">Phase 3</p>
         <h1 className="mt-3 font-serif text-4xl text-ink">Structural translation and localized export</h1>
         <p className="mt-3 max-w-2xl text-sm leading-7 text-steel">
@@ -99,9 +99,10 @@ export function ExportScreen({
                 type="button"
                 onClick={() => toggleLanguage(language)}
                 className={[
-                  "rounded-full border px-4 py-2 text-sm transition",
-                  active ? "border-ink bg-ink text-sand" : "border-stone-300 bg-white text-ink hover:border-ember",
+                  "selection-chip rounded-full border px-4 py-2 text-sm font-medium transition",
+                  active ? "selection-chip-active border-ink bg-ink text-sand" : "selection-chip-inactive border-stone-300 bg-white text-ink hover:border-ember",
                 ].join(" ")}
+                aria-pressed={active}
               >
                 {language}
               </button>
@@ -133,15 +134,24 @@ export function ExportScreen({
         {error ? <p className="mt-4 text-sm text-rose-700">{error}</p> : null}
       </section>
 
-      <section className="rounded-[2rem] border border-white/60 bg-[#11131a] p-8 text-sand shadow-panel">
+      <section className="panel-surface rounded-[2rem] border border-white/60 bg-[#11131a] p-8 text-sand shadow-panel">
         <p className="text-xs uppercase tracking-[0.24em] text-sand/60">Artifacts</p>
         <h2 className="mt-3 font-serif text-3xl">Export package</h2>
         <div className="mt-6 space-y-4 text-sm leading-7 text-sand/80">
           <p>{snapshot.template?.file_name}</p>
-          <p>{outputFileName.trim() || "localized-specification"}.zip</p>
+          <p>{effectiveOutputFileName}.zip</p>
           <p>{selectedLanguages.length} target languages selected</p>
           <p>{generatedFiles.length} localized files generated</p>
         </div>
+
+        {busy ? (
+          <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-sand/80">
+            <div className="flex items-center gap-2">
+              <LoaderCircle className="h-4 w-4 animate-spin" />
+              <span>Generating translations and rebuilding the archive. Existing artifacts stay visible until the new export is ready.</span>
+            </div>
+          </div>
+        ) : null}
 
         {archiveReady ? <div className="mt-8 flex flex-wrap gap-3">
           <a
