@@ -45,6 +45,7 @@ class SessionContext(BaseModel):
     template_path: Path
     template_structure: TemplateStructure
     draft_state: DocumentDraftState
+    enhancement_document_path: Path | None = None
     good_example_paths: list[Path] = Field(default_factory=list)
     bad_example_paths: list[Path] = Field(default_factory=list)
     scenario_id: str | None = None
@@ -56,7 +57,7 @@ class SessionContext(BaseModel):
 
 
 class LoadedFileReference(BaseModel):
-    kind: Literal["template", "good_example", "bad_example"]
+    kind: Literal["template", "enhancement_document", "good_example", "bad_example"]
     file_name: str
     download_path: str
 
@@ -123,11 +124,22 @@ class TranslationProviderOption(BaseModel):
     required_env: list[str] = Field(default_factory=list)
 
 
+class CustomCssConfiguration(BaseModel):
+    enabled: bool = False
+    file_name: str | None = None
+    updated_at: datetime | None = None
+
+
 class TranslationConfigurationResponse(BaseModel):
     active_provider: TranslationProviderId
     options: list[TranslationProviderOption] = Field(default_factory=list)
+    custom_css: CustomCssConfiguration = Field(default_factory=CustomCssConfiguration)
     source: str = ".env"
     restart_required: bool = True
+
+
+class CustomCssResponse(CustomCssConfiguration):
+    css_text: str | None = None
 
 
 class ExampleSnippet(BaseModel):

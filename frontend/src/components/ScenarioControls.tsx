@@ -10,6 +10,9 @@ type ScenarioControlsProps = {
   onSave: () => Promise<void>;
   busy: boolean;
   canSave: boolean;
+  mode?: "load-save" | "load-only" | "save-only";
+  title?: string;
+  description?: string;
 };
 
 export function ScenarioControls({
@@ -20,14 +23,22 @@ export function ScenarioControls({
   onSave,
   busy,
   canSave,
+  mode = "load-save",
+  title,
+  description,
 }: ScenarioControlsProps) {
+  const showLoad = mode !== "save-only";
+  const showSave = mode !== "load-only";
+
   return (
     <div className="flex flex-col gap-4 rounded-[1.75rem] border border-white/70 bg-white/80 p-5 shadow-panel backdrop-blur">
       <div>
         <p className="text-xs uppercase tracking-[0.24em] text-steel">Scenarios</p>
-        <h2 className="mt-2 font-serif text-2xl text-ink">Load or save a named scenario</h2>
+        <h2 className="mt-2 font-serif text-2xl text-ink">
+          {title ?? (mode === "load-only" ? "Load an existing scenario" : mode === "save-only" ? "Save the current scenario" : "Load or save a named scenario")}
+        </h2>
         <p className="mt-2 text-sm leading-6 text-steel">
-          A scenario stores the template, examples, current prompt, draft document, and export language configuration under the root scenarios folder.
+          {description ?? "A scenario stores the template, enhancement document, examples, current prompt, draft document, and export language configuration under the root scenarios folder."}
         </p>
       </div>
       <div className="flex flex-col gap-3 sm:flex-row">
@@ -67,24 +78,28 @@ export function ScenarioControls({
         ))}
       </div>
       <div className="flex flex-wrap gap-3">
-        <button
-          type="button"
-          onClick={() => void onLoad()}
-          disabled={busy || !scenarioId.trim()}
-          className="inline-flex items-center gap-2 rounded-full bg-ink px-4 py-3 text-sm font-semibold text-sand transition hover:bg-[#1e2230] disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <FolderOpen className="h-4 w-4" />}
-          Load scenario
-        </button>
-        <button
-          type="button"
-          onClick={() => void onSave()}
-          disabled={busy || !scenarioId.trim() || !canSave}
-          className="inline-flex items-center gap-2 rounded-full bg-moss px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#2f493b] disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          Save scenario
-        </button>
+        {showLoad ? (
+          <button
+            type="button"
+            onClick={() => void onLoad()}
+            disabled={busy || !scenarioId.trim()}
+            className="inline-flex items-center gap-2 rounded-full bg-ink px-4 py-3 text-sm font-semibold text-sand transition hover:bg-[#1e2230] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <FolderOpen className="h-4 w-4" />}
+            Load scenario
+          </button>
+        ) : null}
+        {showSave ? (
+          <button
+            type="button"
+            onClick={() => void onSave()}
+            disabled={busy || !scenarioId.trim() || !canSave}
+            className="inline-flex items-center gap-2 rounded-full bg-moss px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#2f493b] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            Save scenario
+          </button>
+        ) : null}
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { LoaderCircle, Settings2, X } from "lucide-react";
+import { LoaderCircle, Paintbrush2, Settings2, Trash2, Upload, X } from "lucide-react";
 
 import type { TranslationConfigurationResponse } from "../lib/types";
 
@@ -9,6 +9,8 @@ type TranslationConfigurationDialogProps = {
   configuration: TranslationConfigurationResponse | null;
   onClose: () => void;
   onRefresh: () => void;
+  onUploadCustomCss: (file: File) => Promise<void>;
+  onClearCustomCss: () => Promise<void>;
 };
 
 export function TranslationConfigurationDialog({
@@ -18,6 +20,8 @@ export function TranslationConfigurationDialog({
   configuration,
   onClose,
   onRefresh,
+  onUploadCustomCss,
+  onClearCustomCss,
 }: TranslationConfigurationDialogProps) {
   if (!open) {
     return null;
@@ -30,11 +34,11 @@ export function TranslationConfigurationDialog({
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white px-3 py-1 text-xs uppercase tracking-[0.22em] text-steel">
               <Settings2 className="h-4 w-4" />
-              Translation configuration
+              Workspace configuration
             </div>
-            <h2 className="mt-4 font-serif text-3xl text-ink">Choose the backend translation provider through .env</h2>
+            <h2 className="mt-4 font-serif text-3xl text-ink">Configure translation and UI theming</h2>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-steel">
-              The backend reads the active translator from backend/.env. Set TRANSLATION_PROVIDER to llm, azure, or google, then restart the backend to apply the change.
+              The backend reads the active translator from backend/.env. You can also upload a custom CSS file stored in the application database and applied to the UI immediately.
             </p>
           </div>
           <button
@@ -117,6 +121,60 @@ export function TranslationConfigurationDialog({
             })}
           </div>
         ) : null}
+
+        <section className="mt-6 rounded-[1.75rem] border border-stone-200 bg-white/90 p-5 shadow-panel">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full bg-sand px-3 py-1 text-xs uppercase tracking-[0.18em] text-steel">
+                <Paintbrush2 className="h-4 w-4" />
+                Custom CSS
+              </div>
+              <h3 className="mt-3 font-serif text-2xl text-ink">Upload a stylesheet override</h3>
+              <p className="mt-2 max-w-2xl text-sm leading-7 text-steel">
+                Upload a `.css` file to override the default UI styles. The file is saved in the application database and applied across reloads until you clear it.
+              </p>
+            </div>
+            {configuration?.custom_css.enabled ? (
+              <button
+                type="button"
+                onClick={() => void onClearCustomCss()}
+                disabled={loading}
+                className="inline-flex items-center gap-2 rounded-full border border-stone-300 bg-white px-4 py-3 text-sm font-semibold text-ink transition hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Trash2 className="h-4 w-4" />
+                Clear custom CSS
+              </button>
+            ) : null}
+          </div>
+
+          <div className="mt-5 flex flex-wrap items-center gap-4">
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-ink px-4 py-3 text-sm font-semibold text-sand transition hover:bg-[#1e2230]">
+              <Upload className="h-4 w-4" />
+              Upload CSS
+              <input
+                type="file"
+                accept=".css,text/css"
+                className="sr-only"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) {
+                    void onUploadCustomCss(file);
+                  }
+                  event.currentTarget.value = "";
+                }}
+              />
+            </label>
+            <div className="rounded-full bg-sand px-4 py-2 text-sm text-ink">
+              {configuration?.custom_css.enabled
+                ? `Active stylesheet: ${configuration.custom_css.file_name ?? "custom.css"}`
+                : "No custom CSS uploaded"}
+            </div>
+          </div>
+
+          {configuration?.custom_css.updated_at ? (
+            <p className="mt-4 text-sm text-steel">Last updated: {new Date(configuration.custom_css.updated_at).toLocaleString()}</p>
+          ) : null}
+        </section>
 
         <div className="mt-6 rounded-[1.75rem] border border-dashed border-stone-300 bg-white/75 p-5 text-sm leading-7 text-steel">
           Configuration file: backend/.env

@@ -26,6 +26,7 @@ class IngestionService:
         self,
         *,
         template_file: UploadFile,
+        enhancement_document_file: UploadFile | None,
         good_examples: list[UploadFile],
         bad_examples: list[UploadFile],
     ) -> SessionContext:
@@ -35,29 +36,30 @@ class IngestionService:
 
         template_path = await self._persist_file(session_dir, template_file)
         template_structure = self._parse_template(template_path)
+        enhancement_document_path = await self._persist_file(session_dir, enhancement_document_file) if enhancement_document_file else None
 
         saved_good_examples = [await self._persist_file(session_dir, example) for example in good_examples]
         saved_bad_examples = [await self._persist_file(session_dir, example) for example in bad_examples]
-        warnings = rag_service.index_examples(
+        warnings = self.index_session_examples(
             session_id,
-            [(path.name, self._read_example_text(path)) for path in saved_good_examples],
-            [(path.name, self._read_example_text(path)) for path in saved_bad_examples],
+            saved_good_examples,
+            saved_bad_examples,
+            enhancement_document_path=enhancement_document_path,
         )
 
-        draft_state = DocumentDraftState(
+        draft_state, draft_warnings = self._build_initial_draft_state(
             session_id=session_id,
-            sections=[
-                DraftSectionState(section_id=section.id, title=section.title)
-                for section in template_structure.sections
-            ],
-            updated_at=datetime.now(UTC),
+            template_structure=template_structure,
+            enhancement_document_path=enhancement_document_path,
         )
+        warnings.extend(draft_warnings)
 
         return SessionContext(
             session_id=session_id,
             template_path=template_path,
             template_structure=template_structure,
             draft_state=draft_state,
+            enhancement_document_path=enhancement_document_path,
             good_example_paths=saved_good_examples,
             bad_example_paths=saved_bad_examples,
             output_file_name=template_path.stem,
@@ -70,6 +72,113 @@ class IngestionService:
         file_path.write_bytes(content)
         await upload.close()
         return file_path
+
+    def index_session_examples(
+        self,
+        session_id: str,
+        good_example_paths: list[Path],
+        bad_example_paths: list[Path],
+        *,
+        enhancement_document_path: Path | None = None,
+    ) -> list[str]:
+        good_examples = [(path.name, self._read_example_text(path)) for path in good_example_paths]
+        if enhancement_document_path is not None:
+            good_examples.append((enhancement_document_path.name, self._read_example_text(enhancement_document_path)))
+        bad_examples = [(path.name, self._read_example_text(path)) for path in bad_example_paths]
+        return rag_service.index_examples(session_id, good_examples, bad_examples)
+
+    def _build_initial_draft_state(
+        self,
+        *,
+        session_id: str,
+        template_structure: TemplateStructure,
+        enhancement_document_path: Path | None,
+    ) -> tuple[DocumentDraftState, list[str]]:
+        draft_state = DocumentDraftState(
+            session_id=session_id,
+            sections=[
+                DraftSectionState(section_id=section.id, title=section.title)
+                for section in template_structure.sections
+            ],
+            updated_at=datetime.now(UTC),
+        )
+
+        if enhancement_document_path is None:
+            return draft_state, []
+
+        warnings = self._hydrate_draft_from_existing_document(draft_state, template_structure, enhancement_document_path)
+        draft_state.updated_at = datetime.now(UTC)
+        return draft_state, warnings
+
+    def _hydrate_draft_from_existing_document(
+        self,
+        draft_state: DocumentDraftState,
+        template_structure: TemplateStructure,
+        existing_document_path: Path,
+    ) -> list[str]:
+        warnings: list[str] = []
+        template_sections = {self._normalize_title(section.title): section for section in template_structure.sections}
+        draft_sections = {section.section_id: section for section in draft_state.sections}
+        imported_sections = self._extract_existing_sections(existing_document_path)
+        matched = 0
+
+        for imported_title, imported_content in imported_sections:
+            if not imported_content.strip():
+                continue
+            template_section = template_sections.get(self._normalize_title(imported_title))
+            if template_section is None:
+                continue
+            draft_section = draft_sections.get(template_section.id)
+            if draft_section is None:
+                continue
+            draft_section.content = imported_content.strip()
+            draft_section.status = "complete"
+            draft_section.last_updated_at = datetime.now(UTC)
+            matched += 1
+
+        if matched == 0:
+            imported_text = self._read_example_text(existing_document_path).strip()
+            if imported_text and draft_state.sections:
+                draft_state.sections[0].content = imported_text
+                draft_state.sections[0].status = "in_progress"
+                draft_state.sections[0].last_updated_at = datetime.now(UTC)
+                warnings.append(
+                    "The enhancement document could not be aligned to the template headings, so its content was placed in the first section for refinement."
+                )
+        else:
+            draft_state.summary = f"Imported content from {existing_document_path.name} into {matched} template section(s)."
+
+        return warnings
+
+    def _extract_existing_sections(self, file_path: Path) -> list[tuple[str, str]]:
+        suffix = file_path.suffix.lower()
+        if suffix == ".docx" and DocxDocument is not None:
+            document = DocxDocument(str(file_path))
+            sections: list[tuple[str, str]] = []
+            current_title: str | None = None
+            current_lines: list[str] = []
+            for paragraph in document.paragraphs:
+                text = paragraph.text.strip()
+                if not text:
+                    continue
+                style_name = paragraph.style.name.lower() if paragraph.style and paragraph.style.name else ""
+                if style_name.startswith("heading"):
+                    if current_title and current_lines:
+                        sections.append((current_title, "\n".join(current_lines).strip()))
+                    current_title = text
+                    current_lines = []
+                    continue
+                if current_title is None:
+                    current_title = "Imported content"
+                current_lines.append(text)
+            if current_title and current_lines:
+                sections.append((current_title, "\n".join(current_lines).strip()))
+            return sections
+        return []
+
+    @staticmethod
+    def _normalize_title(value: str) -> str:
+        return " ".join(value.lower().split())
 
     def _parse_template(self, template_path: Path) -> TemplateStructure:
         suffix = template_path.suffix.lower()

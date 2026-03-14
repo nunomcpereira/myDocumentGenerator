@@ -14,6 +14,7 @@ from app.models.document_state import (
     ChatRequest,
     ChatResponse,
     ChatResult,
+    CustomCssResponse,
     DraftSectionState,
     ExportRequest,
     ExportResponse,
@@ -54,15 +55,47 @@ async def translation_configuration() -> TranslationConfigurationResponse:
     return translation_service.describe_configuration()
 
 
+@app.get("/config/custom-css", response_model=CustomCssResponse)
+async def get_custom_css() -> CustomCssResponse:
+    css_text, file_name, updated_at = scenario_service.get_custom_css()
+    return CustomCssResponse(enabled=bool(css_text), file_name=file_name, updated_at=updated_at, css_text=css_text)
+
+
+@app.post("/config/custom-css", response_model=TranslationConfigurationResponse)
+async def upload_custom_css(custom_css: UploadFile = File(...)) -> TranslationConfigurationResponse:
+    if not custom_css.filename:
+        raise HTTPException(status_code=400, detail="Provide a CSS file to upload.")
+    if not custom_css.filename.lower().endswith(".css"):
+        raise HTTPException(status_code=400, detail="Only .css files are supported for UI customization.")
+
+    css_bytes = await custom_css.read()
+    await custom_css.close()
+    try:
+        css_text = css_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Custom CSS must be UTF-8 encoded text.") from exc
+
+    scenario_service.set_custom_css(file_name=custom_css.filename, css_text=css_text)
+    return translation_service.describe_configuration()
+
+
+@app.delete("/config/custom-css", response_model=TranslationConfigurationResponse)
+async def clear_custom_css() -> TranslationConfigurationResponse:
+    scenario_service.clear_custom_css()
+    return translation_service.describe_configuration()
+
+
 @app.post("/ingest", response_model=IngestResponse)
 async def ingest(
     template: UploadFile = File(...),
+    existing_document: UploadFile | None = File(default=None),
     good_examples: list[UploadFile] = File(default=[]),
     bad_examples: list[UploadFile] = File(default=[]),
 ) -> IngestResponse:
     try:
         session = await ingestion_service.initialize_session(
             template_file=template,
+            enhancement_document_file=existing_document,
             good_examples=good_examples,
             bad_examples=bad_examples,
         )
@@ -387,6 +420,14 @@ def build_loaded_files(session) -> list[LoadedFileReference]:
             download_path=f"/sessions/{session.session_id}/files/template/{session.template_path.name}",
         )
     ]
+    if session.enhancement_document_path is not None:
+        loaded_files.append(
+            LoadedFileReference(
+                kind="enhancement_document",
+                file_name=session.enhancement_document_path.name,
+                download_path=f"/sessions/{session.session_id}/files/enhancement_document/{session.enhancement_document_path.name}",
+            )
+        )
     loaded_files.extend(
         LoadedFileReference(
             kind="good_example",
@@ -409,6 +450,8 @@ def build_loaded_files(session) -> list[LoadedFileReference]:
 def resolve_session_file(session, kind: str, file_name: str) -> Path | None:
     if kind == "template" and session.template_path.name == file_name:
         return session.template_path
+    if kind == "enhancement_document" and session.enhancement_document_path and session.enhancement_document_path.name == file_name:
+        return session.enhancement_document_path
     if kind == "good_example":
         for path in session.good_example_paths:
             if path.name == file_name:

@@ -11,8 +11,9 @@ import httpx
 from app.core.config import get_settings
 from app.core.errors import ExportError
 from app.core.errors import TranslationProviderConfigurationError, TranslationProviderError
-from app.models.document_state import ExampleSnippet, SessionContext, TemplateSection, TranslationConfigurationResponse, TranslationProviderId, TranslationProviderOption
+from app.models.document_state import CustomCssConfiguration, ExampleSnippet, SessionContext, TemplateSection, TranslationConfigurationResponse, TranslationProviderId, TranslationProviderOption
 from app.services.llm_provider import llm_provider
+from app.services.scenario_service import scenario_service
 
 try:
     from docx import Document as DocxDocument
@@ -59,6 +60,7 @@ class TranslationService:
 
     def describe_configuration(self) -> TranslationConfigurationResponse:
         active_provider = self.get_active_provider()
+        _, css_file_name, css_updated_at = scenario_service.get_custom_css()
         return TranslationConfigurationResponse(
             active_provider=active_provider,
             options=[
@@ -71,6 +73,7 @@ class TranslationService:
                 )
                 for provider_id, metadata in PROVIDER_METADATA.items()
             ],
+            custom_css=CustomCssConfiguration(enabled=bool(css_file_name), file_name=css_file_name, updated_at=css_updated_at),
         )
 
     def get_active_provider(self) -> TranslationProviderId:

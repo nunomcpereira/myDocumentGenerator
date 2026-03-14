@@ -1,4 +1,4 @@
-import { FileArchive, FileUp, LoaderCircle, ShieldAlert } from "lucide-react";
+import { FileArchive, FileText, FileUp, LoaderCircle, ShieldAlert } from "lucide-react";
 import { useState } from "react";
 
 import { ingestDocuments } from "../api/client";
@@ -10,6 +10,7 @@ type IngestionScreenProps = {
 
 export function IngestionScreen({ onInitialized }: IngestionScreenProps) {
   const [template, setTemplate] = useState<File | null>(null);
+  const [existingDocument, setExistingDocument] = useState<File | null>(null);
   const [goodExamples, setGoodExamples] = useState<File[]>([]);
   const [badExamples, setBadExamples] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
@@ -26,7 +27,7 @@ export function IngestionScreen({ onInitialized }: IngestionScreenProps) {
     setError(null);
 
     try {
-      const response = await ingestDocuments({ template, goodExamples, badExamples });
+      const response = await ingestDocuments({ template, existingDocument, goodExamples, badExamples });
       const previewMarkdown = response.draft_state.sections
         .map((section) => `## ${section.title}\n\n${section.content || "_Pending input_"}`)
         .join("\n\n");
@@ -72,6 +73,22 @@ export function IngestionScreen({ onInitialized }: IngestionScreenProps) {
               accept=".docx,.pdf"
               onChange={(event) => setTemplate(event.target.files?.[0] ?? null)}
               className="mt-2 block text-sm text-steel"
+            />
+          </label>
+
+          <label className="block rounded-3xl border border-stone-200 bg-white p-5">
+            <span className="mb-2 flex items-center gap-2 text-sm font-semibold text-ink">
+              <FileText className="h-4 w-4" />
+              Existing document to enhance (optional)
+            </span>
+            <p className="text-xs leading-6 text-steel">
+              Upload the current version of the document to seed the draft with existing content before refinement.
+            </p>
+            <input
+              type="file"
+              accept=".docx,.pdf,.md,.txt"
+              onChange={(event) => setExistingDocument(event.target.files?.[0] ?? null)}
+              className="mt-3 block text-sm text-steel"
             />
           </label>
 
@@ -123,7 +140,7 @@ export function IngestionScreen({ onInitialized }: IngestionScreenProps) {
         <p className="text-xs uppercase tracking-[0.24em] text-sand/60">API-first workflow</p>
         <h2 className="mt-3 font-serif text-3xl">Backend-first orchestration</h2>
         <div className="mt-6 space-y-4 text-sm leading-7 text-sand/80">
-          <p><strong>Ingest:</strong> parse template structure, save examples, initialize session state.</p>
+          <p><strong>Ingest:</strong> parse template structure, optionally hydrate the draft from an uploaded document, and save supporting files.</p>
           <p><strong>Chat:</strong> update the draft state via an interviewing analyst prompt and retrieval context.</p>
           <p><strong>Export:</strong> translate structured content, then inject it into the original .docx layout.</p>
         </div>

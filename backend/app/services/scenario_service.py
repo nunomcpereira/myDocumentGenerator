@@ -19,6 +19,7 @@ from app.models.document_state import (
     SessionContext,
     TemplateStructure,
 )
+from app.services.ingestion_service import ingestion_service
 
 
 class ScenarioService:
@@ -61,14 +62,17 @@ class ScenarioService:
         scenario_dir.mkdir(parents=True, exist_ok=True)
 
         template_dir = scenario_dir / "template"
+        enhancement_dir = scenario_dir / "enhancement_document"
         good_dir = scenario_dir / "good_examples"
         bad_dir = scenario_dir / "bad_examples"
         template_dir.mkdir(parents=True, exist_ok=True)
+        enhancement_dir.mkdir(parents=True, exist_ok=True)
         good_dir.mkdir(parents=True, exist_ok=True)
         bad_dir.mkdir(parents=True, exist_ok=True)
 
         template_target = template_dir / session.template_path.name
         shutil.copy2(session.template_path, template_target)
+        enhancement_target = self._copy_file(session.enhancement_document_path, enhancement_dir) if session.enhancement_document_path else None
         copied_good = [self._copy_file(path, good_dir) for path in session.good_example_paths]
         copied_bad = [self._copy_file(path, bad_dir) for path in session.bad_example_paths]
 
@@ -85,6 +89,7 @@ class ScenarioService:
                     scenario_id,
                     template_file_name,
                     template_relative_path,
+                    enhancement_document_relative_path,
                     good_example_relative_paths_json,
                     bad_example_relative_paths_json,
                     template_structure_json,
@@ -94,10 +99,11 @@ class ScenarioService:
                     output_file_name,
                     warnings_json,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(scenario_id) DO UPDATE SET
                     template_file_name = excluded.template_file_name,
                     template_relative_path = excluded.template_relative_path,
+                    enhancement_document_relative_path = excluded.enhancement_document_relative_path,
                     good_example_relative_paths_json = excluded.good_example_relative_paths_json,
                     bad_example_relative_paths_json = excluded.bad_example_relative_paths_json,
                     template_structure_json = excluded.template_structure_json,
@@ -112,6 +118,7 @@ class ScenarioService:
                     normalized_id,
                     session.template_path.name,
                     str(Path("template") / session.template_path.name),
+                    str(Path("enhancement_document") / enhancement_target.name) if enhancement_target else None,
                     json.dumps([str(Path("good_examples") / path.name) for path in copied_good]),
                     json.dumps([str(Path("bad_examples") / path.name) for path in copied_bad]),
                     json.dumps(session.template_structure.model_dump(mode="json")),
@@ -141,6 +148,7 @@ class ScenarioService:
             row = connection.execute(
                 """
                 SELECT template_relative_path,
+                      enhancement_document_relative_path,
                        good_example_relative_paths_json,
                        bad_example_relative_paths_json,
                        template_structure_json,
@@ -165,24 +173,33 @@ class ScenarioService:
         template_target = session_dir / template_source.name
         shutil.copy2(template_source, template_target)
 
-        good_paths = [self._copy_file(scenario_dir / relative_path, session_dir) for relative_path in json.loads(row[1] or "[]")]
-        bad_paths = [self._copy_file(scenario_dir / relative_path, session_dir) for relative_path in json.loads(row[2] or "[]")]
+        enhancement_path = self._copy_file(scenario_dir / row[1], session_dir) if row[1] else None
+        good_paths = [self._copy_file(scenario_dir / relative_path, session_dir) for relative_path in json.loads(row[2] or "[]")]
+        bad_paths = [self._copy_file(scenario_dir / relative_path, session_dir) for relative_path in json.loads(row[3] or "[]")]
 
-        draft_state = DocumentDraftState.model_validate(json.loads(row[4]))
+        warnings = ingestion_service.index_session_examples(
+            session_id,
+            good_paths,
+            bad_paths,
+            enhancement_document_path=enhancement_path,
+        )
+
+        draft_state = DocumentDraftState.model_validate(json.loads(row[5]))
         draft_state.session_id = session_id
 
         return SessionContext(
             session_id=session_id,
             scenario_id=normalized_id,
             template_path=template_target,
-            template_structure=TemplateStructure.model_validate(json.loads(row[3])),
+            template_structure=TemplateStructure.model_validate(json.loads(row[4])),
             draft_state=draft_state,
+            enhancement_document_path=enhancement_path,
             good_example_paths=good_paths,
             bad_example_paths=bad_paths,
-            prompt=row[5],
-            export_languages=json.loads(row[6] or "[]"),
-            output_file_name=row[7],
-            warnings=json.loads(row[8] or "[]"),
+            prompt=row[6],
+            export_languages=json.loads(row[7] or "[]"),
+            output_file_name=row[8],
+            warnings=json.loads(row[9] or "[]") + warnings,
         )
 
     def build_load_response(self, session: SessionContext, preview_markdown: str, loaded_files: list[LoadedFileReference]) -> LoadScenarioResponse:
@@ -199,6 +216,38 @@ class ScenarioService:
             output_file_name=session.output_file_name,
         )
 
+    def get_custom_css(self) -> tuple[str | None, str | None, datetime | None]:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT value_text, file_name, updated_at FROM app_settings WHERE key = ?",
+                ("custom_css",),
+            ).fetchone()
+        if row is None:
+            return None, None, None
+        return row[0], row[1], datetime.fromisoformat(row[2]) if row[2] else None
+
+    def set_custom_css(self, *, file_name: str, css_text: str) -> datetime:
+        updated_at = datetime.now(UTC)
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO app_settings (key, value_text, file_name, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                    value_text = excluded.value_text,
+                    file_name = excluded.file_name,
+                    updated_at = excluded.updated_at
+                """,
+                ("custom_css", css_text, file_name, updated_at.isoformat()),
+            )
+            connection.commit()
+        return updated_at
+
+    def clear_custom_css(self) -> None:
+        with self._connect() as connection:
+            connection.execute("DELETE FROM app_settings WHERE key = ?", ("custom_css",))
+            connection.commit()
+
     def _ensure_database(self) -> None:
         with self._connect() as connection:
             connection.execute(
@@ -207,6 +256,7 @@ class ScenarioService:
                     scenario_id TEXT PRIMARY KEY,
                     template_file_name TEXT,
                     template_relative_path TEXT NOT NULL,
+                    enhancement_document_relative_path TEXT,
                     good_example_relative_paths_json TEXT NOT NULL,
                     bad_example_relative_paths_json TEXT NOT NULL,
                     template_structure_json TEXT NOT NULL,
@@ -219,9 +269,21 @@ class ScenarioService:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value_text TEXT,
+                    file_name TEXT,
+                    updated_at TEXT
+                )
+                """
+            )
             columns = {row[1] for row in connection.execute("PRAGMA table_info(scenarios)").fetchall()}
             if "output_file_name" not in columns:
                 connection.execute("ALTER TABLE scenarios ADD COLUMN output_file_name TEXT")
+            if "enhancement_document_relative_path" not in columns:
+                connection.execute("ALTER TABLE scenarios ADD COLUMN enhancement_document_relative_path TEXT")
             connection.commit()
 
     def _connect(self) -> sqlite3.Connection:

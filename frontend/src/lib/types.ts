@@ -15,7 +15,7 @@ export type TemplateStructure = {
 };
 
 export type LoadedFileReference = {
-  kind: "template" | "good_example" | "bad_example";
+  kind: "template" | "enhancement_document" | "good_example" | "bad_example";
   file_name: string;
   download_path: string;
 };
@@ -72,11 +72,22 @@ export type TranslationProviderOption = {
   required_env: string[];
 };
 
+export type CustomCssConfiguration = {
+  enabled: boolean;
+  file_name?: string | null;
+  updated_at?: string | null;
+};
+
 export type TranslationConfigurationResponse = {
   active_provider: TranslationProviderId;
   options: TranslationProviderOption[];
+  custom_css: CustomCssConfiguration;
   source: string;
   restart_required: boolean;
+};
+
+export type CustomCssResponse = CustomCssConfiguration & {
+  css_text?: string | null;
 };
 
 export type ScenarioSummary = {

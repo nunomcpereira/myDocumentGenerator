@@ -1,5 +1,6 @@
 import type {
   ChatResponse,
+  CustomCssResponse,
   ExportResponse,
   IngestResponse,
   LoadScenarioResponse,
@@ -20,11 +21,15 @@ async function handleResponse<T>(response: Response): Promise<T> {
 
 export async function ingestDocuments(params: {
   template: File;
+  existingDocument?: File | null;
   goodExamples: File[];
   badExamples: File[];
 }): Promise<IngestResponse> {
   const formData = new FormData();
   formData.append("template", params.template);
+  if (params.existingDocument) {
+    formData.append("existing_document", params.existingDocument);
+  }
   params.goodExamples.forEach((file) => formData.append("good_examples", file));
   params.badExamples.forEach((file) => formData.append("bad_examples", file));
 
@@ -98,6 +103,29 @@ export async function saveScenario(params: {
 
 export async function getTranslationConfiguration(): Promise<TranslationConfigurationResponse> {
   const response = await fetch(`${API_BASE_URL}/config/translation`);
+  return handleResponse<TranslationConfigurationResponse>(response);
+}
+
+export async function getCustomCss(): Promise<CustomCssResponse> {
+  const response = await fetch(`${API_BASE_URL}/config/custom-css`);
+  return handleResponse<CustomCssResponse>(response);
+}
+
+export async function uploadCustomCss(file: File): Promise<TranslationConfigurationResponse> {
+  const formData = new FormData();
+  formData.append("custom_css", file);
+
+  const response = await fetch(`${API_BASE_URL}/config/custom-css`, {
+    method: "POST",
+    body: formData,
+  });
+  return handleResponse<TranslationConfigurationResponse>(response);
+}
+
+export async function clearCustomCss(): Promise<TranslationConfigurationResponse> {
+  const response = await fetch(`${API_BASE_URL}/config/custom-css`, {
+    method: "DELETE",
+  });
   return handleResponse<TranslationConfigurationResponse>(response);
 }
 

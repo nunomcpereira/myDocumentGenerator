@@ -322,3 +322,96 @@ def test_export_uses_azure_translation_provider(
     generated_text = "\n".join(paragraph.text for paragraph in generated_document.paragraphs)
     assert "Resumen del proyecto" in generated_text
     assert "Crear un flujo de incorporacion de cumplimiento" in generated_text
+
+
+def test_ingest_with_existing_document_is_saved_and_loaded_with_scenario(
+    monkeypatch: pytest.MonkeyPatch,
+    sample_template_path: Path,
+    isolated_storage: Path,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(rag_service, "index_examples", lambda *args, **kwargs: [])
+
+    existing_document_path = tmp_path / "existing-spec.docx"
+    existing_document = Document()
+    existing_document.add_heading("Project Overview", level=1)
+    existing_document.add_paragraph("Existing onboarding workflow ready for further enhancement.")
+    existing_document.save(str(existing_document_path))
+
+    with TestClient(app) as client:
+        with sample_template_path.open("rb") as template_handle, existing_document_path.open("rb") as existing_handle:
+            ingest_response = client.post(
+                "/ingest",
+                files=[
+                    (
+                        "template",
+                        (
+                            sample_template_path.name,
+                            template_handle.read(),
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        ),
+                    ),
+                    (
+                        "existing_document",
+                        (
+                            existing_document_path.name,
+                            existing_handle.read(),
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        ),
+                    ),
+                ],
+            )
+        ingest_response.raise_for_status()
+        ingest_payload = ingest_response.json()
+        assert ingest_payload["draft_state"]["sections"][0]["content"] == "Existing onboarding workflow ready for further enhancement."
+        assert any(file["kind"] == "enhancement_document" for file in ingest_payload["loaded_files"])
+
+        save_response = client.post(
+            "/scenarios/save",
+            json={
+                "session_id": ingest_payload["session_id"],
+                "scenario_id": "enhancement-scenario",
+                "prompt": "",
+                "target_languages": ["Spanish"],
+                "output_file_name": "enhanced-output",
+            },
+        )
+        save_response.raise_for_status()
+
+        load_response = client.post("/scenarios/load", json={"scenario_id": "enhancement-scenario"})
+        load_response.raise_for_status()
+        load_payload = load_response.json()
+        assert any(file["kind"] == "enhancement_document" for file in load_payload["loaded_files"])
+        assert load_payload["draft_state"]["sections"][0]["content"] == "Existing onboarding workflow ready for further enhancement."
+
+
+def test_custom_css_can_be_uploaded_and_cleared(isolated_storage: Path) -> None:
+    css_text = ":root { --brand-accent: #123456; }\nbody { background-color: rgb(9, 17, 34) !important; }"
+
+    with TestClient(app) as client:
+        upload_response = client.post(
+            "/config/custom-css",
+            files={"custom_css": ("brand.css", css_text.encode("utf-8"), "text/css")},
+        )
+        upload_response.raise_for_status()
+        upload_payload = upload_response.json()
+        assert upload_payload["custom_css"]["enabled"] is True
+        assert upload_payload["custom_css"]["file_name"] == "brand.css"
+
+        get_response = client.get("/config/custom-css")
+        get_response.raise_for_status()
+        get_payload = get_response.json()
+        assert get_payload["enabled"] is True
+        assert get_payload["file_name"] == "brand.css"
+        assert get_payload["css_text"] == css_text
+
+        clear_response = client.delete("/config/custom-css")
+        clear_response.raise_for_status()
+        clear_payload = clear_response.json()
+        assert clear_payload["custom_css"]["enabled"] is False
+
+        final_response = client.get("/config/custom-css")
+        final_response.raise_for_status()
+        final_payload = final_response.json()
+        assert final_payload["enabled"] is False
+        assert final_payload["css_text"] is None

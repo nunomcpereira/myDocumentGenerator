@@ -2,13 +2,14 @@ import { BotMessageSquare, Settings2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 
-import { getTranslationConfiguration, listScenarios, loadScenario, saveScenario } from "./api/client";
+import { clearCustomCss, getCustomCss, getTranslationConfiguration, listScenarios, loadScenario, saveScenario, uploadCustomCss } from "./api/client";
 import { ProgressStepper } from "./components/ProgressStepper";
 import { ScenarioControls } from "./components/ScenarioControls";
 import { TranslationConfigurationDialog } from "./components/TranslationConfigurationDialog";
 import { ExportScreen } from "./pages/ExportScreen";
 import { IngestionScreen } from "./pages/IngestionScreen";
 import { RefinementScreen } from "./pages/RefinementScreen";
+import { WizardScreen } from "./pages/WizardScreen";
 import type { ScenarioSummary, SessionSnapshot, TranslationConfigurationResponse } from "./lib/types";
 
 const initialSnapshot: SessionSnapshot = {
@@ -80,9 +81,11 @@ export default function App() {
   const [translationConfiguration, setTranslationConfiguration] = useState<TranslationConfigurationResponse | null>(null);
   const [translationConfigurationBusy, setTranslationConfigurationBusy] = useState(false);
   const [translationConfigurationError, setTranslationConfigurationError] = useState<string | null>(null);
+  const [customCss, setCustomCss] = useState<string | null>(null);
 
   useEffect(() => {
     void refreshScenarios();
+    void loadCustomCssTheme();
   }, []);
 
   useEffect(() => {
@@ -109,9 +112,67 @@ export default function App() {
     }
   }
 
+  async function loadCustomCssTheme() {
+    try {
+      const response = await getCustomCss();
+      setCustomCss(response.css_text ?? null);
+    } catch {
+      setCustomCss(null);
+    }
+  }
+
+  useEffect(() => {
+    const styleElementId = "app-custom-css";
+    const existingStyleElement = document.getElementById(styleElementId);
+
+    if (!customCss?.trim()) {
+      existingStyleElement?.remove();
+      return;
+    }
+
+    const styleElement = existingStyleElement ?? document.createElement("style");
+    styleElement.id = styleElementId;
+    styleElement.textContent = customCss;
+    if (!existingStyleElement) {
+      document.head.appendChild(styleElement);
+    }
+
+    return () => {
+      if (!customCss?.trim()) {
+        styleElement.remove();
+      }
+    };
+  }, [customCss]);
+
   async function handleOpenConfiguration() {
     setConfigurationOpen(true);
-    await loadTranslationProviderConfiguration();
+    await Promise.all([loadTranslationProviderConfiguration(), loadCustomCssTheme()]);
+  }
+
+  async function handleUploadCustomCss(file: File) {
+    setTranslationConfigurationBusy(true);
+    setTranslationConfigurationError(null);
+    try {
+      setTranslationConfiguration(await uploadCustomCss(file));
+      await loadCustomCssTheme();
+    } catch (caught) {
+      setTranslationConfigurationError(caught instanceof Error ? caught.message : "Failed to upload custom CSS.");
+    } finally {
+      setTranslationConfigurationBusy(false);
+    }
+  }
+
+  async function handleClearCustomCss() {
+    setTranslationConfigurationBusy(true);
+    setTranslationConfigurationError(null);
+    try {
+      setTranslationConfiguration(await clearCustomCss());
+      setCustomCss(null);
+    } catch (caught) {
+      setTranslationConfigurationError(caught instanceof Error ? caught.message : "Failed to clear custom CSS.");
+    } finally {
+      setTranslationConfigurationBusy(false);
+    }
   }
 
   async function handleLoadScenario() {
@@ -166,25 +227,24 @@ export default function App() {
     }
   }
 
-  const currentStep = snapshot.sessionId
-    ? location.pathname.startsWith("/export")
-      ? 3
+  const currentStep = location.pathname === "/"
+    ? 0
+    : location.pathname.startsWith("/ingest")
+      ? 1
       : location.pathname.startsWith("/refine")
         ? 2
-        : 1
-    : 1;
+        : location.pathname.startsWith("/export")
+          ? 3
+          : 0;
 
   return (
-    <div className="mx-auto min-h-screen max-w-[1480px] px-4 py-6 sm:px-6 lg:px-10">
+    <div data-testid="app-shell" className="mx-auto min-h-screen max-w-[1480px] px-4 py-6 sm:px-6 lg:px-10">
       <header className="mb-8 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="inline-flex items-center gap-3 rounded-full border border-white/70 bg-white/75 px-4 py-2 shadow-panel backdrop-blur">
             <BotMessageSquare className="h-4 w-4 text-ember" />
             <span className="text-sm text-ink">Documentation Generation & Localization Engine</span>
           </div>
-          <h1 className="mt-4 max-w-4xl font-serif text-4xl text-ink sm:text-5xl">
-           AI Document Generator
-          </h1>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <button
@@ -199,17 +259,22 @@ export default function App() {
         </div>
       </header>
 
-      <div className="mb-6">
-        <ScenarioControls
-          scenarios={scenarios}
-          scenarioId={snapshot.scenarioId}
-          onScenarioIdChange={(scenarioId) => setSnapshot((current) => ({ ...current, scenarioId }))}
-          onLoad={handleLoadScenario}
-          onSave={handleSaveScenario}
-          busy={scenarioBusy}
-          canSave={Boolean(snapshot.sessionId)}
-        />
-      </div>
+      {currentStep > 0 ? (
+        <div className="mb-6">
+          <ScenarioControls
+            scenarios={scenarios}
+            scenarioId={snapshot.scenarioId}
+            onScenarioIdChange={(scenarioId) => setSnapshot((current) => ({ ...current, scenarioId }))}
+            onLoad={handleLoadScenario}
+            onSave={handleSaveScenario}
+            busy={scenarioBusy}
+            canSave={Boolean(snapshot.sessionId)}
+            mode="save-only"
+            title="Save the current scenario"
+            description="Capture the template, enhancement document, examples, draft state, and export settings under a reusable scenario ID."
+          />
+        </div>
+      ) : null}
 
       {snapshot.warnings.length > 0 ? (
         <div className="mb-6 rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">
@@ -222,6 +287,19 @@ export default function App() {
       <Routes>
         <Route
           path="/"
+          element={
+            <WizardScreen
+              scenarios={scenarios}
+              scenarioId={snapshot.scenarioId}
+              onScenarioIdChange={(scenarioId) => setSnapshot((current) => ({ ...current, scenarioId }))}
+              onLoadScenario={handleLoadScenario}
+              onStartFromScratch={() => navigate("/ingest")}
+              scenarioBusy={scenarioBusy}
+            />
+          }
+        />
+        <Route
+          path="/ingest"
           element={
             <IngestionScreen
               onInitialized={(nextSnapshot) => {
@@ -246,6 +324,8 @@ export default function App() {
         configuration={translationConfiguration}
         onClose={() => setConfigurationOpen(false)}
         onRefresh={() => void loadTranslationProviderConfiguration()}
+        onUploadCustomCss={handleUploadCustomCss}
+        onClearCustomCss={handleClearCustomCss}
       />
     </div>
   );
