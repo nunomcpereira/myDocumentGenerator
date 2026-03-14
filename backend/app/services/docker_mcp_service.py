@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 import json
+import logging
 import os
 import shlex
 import subprocess
@@ -12,6 +13,9 @@ from urllib.parse import urlsplit, urlunsplit
 
 from app.core.config import get_settings
 from app.models.document_state import McpServerCatalogResponse, McpServerSummary
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -186,14 +190,20 @@ class DockerMcpService:
             headers = self._build_gateway_headers()
             gateway_attempts = self._build_gateway_attempts(self.settings.docker_mcp_gateway_url)
             last_error: Exception | None = None
-            for transport_name, gateway_url in gateway_attempts:
+            for attempt_index, (transport_name, gateway_url) in enumerate(gateway_attempts, start=1):
                 try:
+                    logger.info(
+                        "Connecting to Docker MCP gateway: transport=%s url=%s sse_read_timeout=%s",
+                        transport_name,
+                        gateway_url,
+                        self._get_sse_read_timeout_seconds() if transport_name == "sse" else None,
+                    )
                     if transport_name == "sse":
                         async with sse_client(
                             url=gateway_url,
                             headers=headers or None,
                             timeout=self.settings.request_timeout_seconds,
-                            sse_read_timeout=self.settings.request_timeout_seconds,
+                            sse_read_timeout=self._get_sse_read_timeout_seconds(),
                         ) as (read_stream, write_stream):
                             async with ClientSession(read_stream, write_stream) as session:
                                 await session.initialize()
@@ -207,6 +217,12 @@ class DockerMcpService:
                                 yield DockerMcpGatewayClient(session)
                     return
                 except Exception as exc:
+                    log_message = "Docker MCP gateway transport failed; trying next fallback"
+                    log_method = logger.info
+                    if attempt_index == len(gateway_attempts):
+                        log_message = "Docker MCP gateway transport failed; no fallbacks remain"
+                        log_method = logger.warning
+                    log_method("%s: transport=%s url=%s error=%s", log_message, transport_name, gateway_url, exc)
                     last_error = exc
 
             raise RuntimeError(
@@ -258,6 +274,9 @@ class DockerMcpService:
         if not self.settings.docker_mcp_gateway_auth_token:
             return {}
         return {"Authorization": f"Bearer {self.settings.docker_mcp_gateway_auth_token}"}
+
+    def _get_sse_read_timeout_seconds(self) -> float:
+        return max(self.settings.request_timeout_seconds, self.settings.docker_mcp_sse_read_timeout_seconds)
 
     @staticmethod
     def _build_gateway_attempts(gateway_url: str) -> list[tuple[str, str]]:

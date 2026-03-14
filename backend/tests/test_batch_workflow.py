@@ -44,6 +44,32 @@ def test_llm_provider_includes_selected_mcp_servers_in_system_prompt(monkeypatch
     assert "Fetches a URL from the internet." in prompt
 
 
+def test_docker_mcp_service_uses_dedicated_sse_read_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        docker_mcp_service,
+        "settings",
+        type(
+            "SettingsStub",
+            (),
+            {"request_timeout_seconds": 45.0, "docker_mcp_sse_read_timeout_seconds": 3600.0},
+        )(),
+    )
+
+    assert docker_mcp_service._get_sse_read_timeout_seconds() == 3600.0
+
+    monkeypatch.setattr(
+        docker_mcp_service,
+        "settings",
+        type(
+            "SettingsStub",
+            (),
+            {"request_timeout_seconds": 7200.0, "docker_mcp_sse_read_timeout_seconds": 3600.0},
+        )(),
+    )
+
+    assert docker_mcp_service._get_sse_read_timeout_seconds() == 7200.0
+
+
 def test_llm_provider_executes_selected_mcp_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     payloads: list[dict[str, object]] = []
     tool_calls: list[tuple[str, dict[str, object]]] = []
@@ -356,6 +382,149 @@ def test_llm_provider_executes_inline_tool_markup(monkeypatch: pytest.MonkeyPatc
     assert payload["assistant_message"] == "Fetched RTP."
     assert tool_calls == [("fetch", {"url": "http://www.rtp.pt"})]
     assert any(message.get("role") == "tool" for message in payloads[1]["messages"])
+
+
+def test_llm_provider_ignores_tool_calls_after_tool_usage_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    payloads: list[dict[str, object]] = []
+    executed_calls: list[tuple[str, dict[str, object]]] = []
+
+    class FakeResponse:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = payload
+            self.text = json.dumps(payload)
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return self._payload
+
+    responses = [
+        FakeResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": "call-1",
+                                    "type": "function",
+                                    "function": {"name": "fetch", "arguments": '{"url": "https://a.example"}'},
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+        ),
+        FakeResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": "call-2",
+                                    "type": "function",
+                                    "function": {"name": "fetch", "arguments": '{"url": "https://b.example"}'},
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+        ),
+        FakeResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": "call-3",
+                                    "type": "function",
+                                    "function": {"name": "fetch", "arguments": '{"url": "https://c.example"}'},
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+        ),
+        FakeResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "Still trying tools",
+                            "tool_calls": [
+                                {
+                                    "id": "call-4",
+                                    "type": "function",
+                                    "function": {"name": "fetch", "arguments": '{"url": "https://d.example"}'},
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+        ),
+        FakeResponse({"choices": [{"message": {"content": "Final answer without more tool calls."}}]}),
+    ]
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self) -> "FakeAsyncClient":
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def post(self, url: str, json: dict[str, object], headers: dict[str, str]) -> FakeResponse:
+            payloads.append(json)
+            return responses.pop(0)
+
+    class FakeGatewayClient:
+        async def list_tools(self) -> list[DockerMcpToolSpec]:
+            return [
+                DockerMcpToolSpec(
+                    name="fetch",
+                    description="Fetch a URL from the internet.",
+                    input_schema={"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]},
+                )
+            ]
+
+        async def call_tool(self, tool_name: str, arguments: dict[str, object]) -> DockerMcpToolCallResult:
+            executed_calls.append((tool_name, arguments))
+            return DockerMcpToolCallResult(text=f"Fetched {arguments['url']}")
+
+    @asynccontextmanager
+    async def fake_tool_client(server_names: list[str]):
+        yield FakeGatewayClient()
+
+    monkeypatch.setattr(docker_mcp_service, "tool_client", fake_tool_client)
+    monkeypatch.setattr(llm_provider_module.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = asyncio.run(
+        llm_provider.chat_completion(
+            system_prompt="Use tools when needed.",
+            user_prompt="Gather data.",
+            mcp_servers=["fetch"],
+        )
+    )
+
+    assert result == "Final answer without more tool calls."
+    assert executed_calls == [
+        ("fetch", {"url": "https://a.example"}),
+        ("fetch", {"url": "https://b.example"}),
+        ("fetch", {"url": "https://c.example"}),
+    ]
+    assert payloads[3]["tool_choice"] == "none"
 
 
 def test_batch_workflow_generates_localized_archive(

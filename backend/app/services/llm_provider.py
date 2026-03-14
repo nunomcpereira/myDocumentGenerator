@@ -118,6 +118,22 @@ class LLMProvider:
                 if not tool_calls and gateway_client is not None and not force_finalize_without_tools:
                     tool_calls = self._extract_inline_tool_calls(content)
                 if tool_calls and gateway_client is not None:
+                    if force_finalize_without_tools:
+                        logger.warning("LLM requested additional tool calls after tool usage was disabled; ignoring tool calls and forcing a final answer.")
+                        stripped_content = self._strip_inline_tool_calls(content)
+                        if stripped_content:
+                            messages.append({"role": "assistant", "content": stripped_content})
+                        messages.append(
+                            {
+                                "role": "system",
+                                "content": (
+                                    "Tool calls are no longer allowed for this response. "
+                                    "Use the existing tool outputs and provide the final answer now without calling any tool."
+                                ),
+                            }
+                        )
+                        continue
+
                     parsed_tool_calls: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
                     repeated_tool_calls = True
                     for tool_call in tool_calls:

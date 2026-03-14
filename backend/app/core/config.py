@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     request_timeout_seconds: float = 45.0
     docker_mcp_command: str = Field(default="docker mcp", alias="DOCKER_MCP_COMMAND")
     docker_mcp_timeout_seconds: float = Field(default=5.0, alias="DOCKER_MCP_TIMEOUT_SECONDS")
+    docker_mcp_sse_read_timeout_seconds: float = Field(default=3600.0, alias="DOCKER_MCP_SSE_READ_TIMEOUT_SECONDS")
     docker_mcp_gateway_url: str | None = Field(default=None, alias="DOCKER_MCP_GATEWAY_URL")
     docker_mcp_gateway_auth_token: str | None = Field(default=None, alias="DOCKER_MCP_GATEWAY_AUTH_TOKEN")
 
