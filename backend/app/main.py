@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from app.core.config import get_settings
-from app.core.errors import ExportError, LLMProviderError, SessionNotFoundError, UnsupportedTemplateError
+from app.core.errors import ExportError, LLMProviderError, SessionNotFoundError, TranslationProviderConfigurationError, TranslationProviderError, UnsupportedTemplateError
 from app.models.document_state import (
     ChatRequest,
     ChatResponse,
@@ -23,6 +23,7 @@ from app.models.document_state import (
     SaveScenarioRequest,
     SaveScenarioResponse,
     ScenarioSummary,
+    TranslationConfigurationResponse,
 )
 from app.services.ingestion_service import ingestion_service
 from app.services.llm_provider import llm_provider
@@ -46,6 +47,11 @@ app.add_middleware(
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "timestamp": datetime.now(UTC).isoformat()}
+
+
+@app.get("/config/translation", response_model=TranslationConfigurationResponse)
+async def translation_configuration() -> TranslationConfigurationResponse:
+    return translation_service.describe_configuration()
 
 
 @app.post("/ingest", response_model=IngestResponse)
@@ -176,25 +182,14 @@ async def export(request: ExportRequest) -> ExportResponse:
     for language in request.target_languages:
         style_context = rag_service.retrieve(session.session_id, f"tone and style guidance for {language}", limit=2)
         try:
-            payload = await llm_provider.generate_json(
-                system_prompt=build_translation_system_prompt(session, language),
-                user_prompt=build_translation_user_prompt(session, language, style_context.good_examples),
-                temperature=0.1,
+            translation_payload[language] = await translation_service.translate_sections(
+                session=session,
+                language=language,
+                good_examples=style_context.good_examples,
             )
-            sections = payload.get("sections") or []
-            translation_payload[language] = {}
-            for section in sections:
-                if not isinstance(section, dict):
-                    continue
-                section_id = section.get("section_id")
-                if not section_id:
-                    continue
-                if section.get("content"):
-                    translation_payload[language][section_id] = section["content"]
-                    translation_payload[language][f"{section_id}::content"] = section["content"]
-                if section.get("title"):
-                    translation_payload[language][f"{section_id}::title"] = section["title"]
-        except LLMProviderError as exc:
+        except TranslationProviderConfigurationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except (TranslationProviderError, LLMProviderError) as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     output_directory = settings.generated_root / request.session_id
@@ -310,31 +305,6 @@ def build_chat_user_prompt(session, message: str, good_examples, negative_constr
         f"Negative constraints derived from bad examples:\n{negative_context}\n\n"
         "Return JSON in this shape: "
         '{"assistant_message": string, "summary": string, "section_updates": [{"section_id": string, "title": string, "content": string, "status": "missing|in_progress|complete"}]}'
-    )
-
-
-def build_translation_system_prompt(session, language: str) -> str:
-    return (
-        "You translate structured business and technical documentation. "
-        "Preserve meaning, formatting intent, headings, and professional tone. "
-        "Translate both the section titles and the drafted section content into the requested target language. "
-        "Return only JSON with a sections array, each containing section_id, title, and content. "
-        f"Target language: {language}."
-    )
-
-
-def build_translation_user_prompt(session, language: str, good_examples) -> str:
-    examples = "\n\n".join(snippet.content[:700] for snippet in good_examples) or "No good examples uploaded."
-    source_sections = "\n\n".join(
-        f"Section ID: {section.section_id}\nTitle: {section.title}\nContent:\n{section.content}"
-        for section in session.draft_state.sections
-        if section.content.strip()
-    )
-    return (
-        f"Translate the drafted document content below into {language}. Do not translate template placeholder text that is not present in the drafted content.\n\n"
-        f"Tone guidance from approved examples:\n{examples}\n\n"
-        f"Drafted source sections to translate:\n{source_sections}\n\n"
-        'Return JSON in this shape: {"sections": [{"section_id": string, "title": string, "content": string}]}'
     )
 
 

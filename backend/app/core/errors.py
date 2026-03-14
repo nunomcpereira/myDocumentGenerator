@@ -16,3 +16,11 @@ class LLMOfflineError(LLMProviderError):
 
 class ExportError(Exception):
     pass
+
+
+class TranslationProviderError(Exception):
+    pass
+
+
+class TranslationProviderConfigurationError(TranslationProviderError):
+    pass

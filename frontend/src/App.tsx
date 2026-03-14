@@ -1,14 +1,15 @@
-import { BotMessageSquare } from "lucide-react";
+import { BotMessageSquare, Settings2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 
-import { listScenarios, loadScenario, saveScenario } from "./api/client";
+import { getTranslationConfiguration, listScenarios, loadScenario, saveScenario } from "./api/client";
 import { ProgressStepper } from "./components/ProgressStepper";
 import { ScenarioControls } from "./components/ScenarioControls";
+import { TranslationConfigurationDialog } from "./components/TranslationConfigurationDialog";
 import { ExportScreen } from "./pages/ExportScreen";
 import { IngestionScreen } from "./pages/IngestionScreen";
 import { RefinementScreen } from "./pages/RefinementScreen";
-import type { ScenarioSummary, SessionSnapshot } from "./lib/types";
+import type { ScenarioSummary, SessionSnapshot, TranslationConfigurationResponse } from "./lib/types";
 
 const initialSnapshot: SessionSnapshot = {
   sessionId: null,
@@ -75,6 +76,10 @@ export default function App() {
   });
   const [scenarios, setScenarios] = useState<ScenarioSummary[]>([]);
   const [scenarioBusy, setScenarioBusy] = useState(false);
+  const [configurationOpen, setConfigurationOpen] = useState(false);
+  const [translationConfiguration, setTranslationConfiguration] = useState<TranslationConfigurationResponse | null>(null);
+  const [translationConfigurationBusy, setTranslationConfigurationBusy] = useState(false);
+  const [translationConfigurationError, setTranslationConfigurationError] = useState<string | null>(null);
 
   useEffect(() => {
     void refreshScenarios();
@@ -90,6 +95,23 @@ export default function App() {
     } catch {
       setScenarios([]);
     }
+  }
+
+  async function loadTranslationProviderConfiguration() {
+    setTranslationConfigurationBusy(true);
+    setTranslationConfigurationError(null);
+    try {
+      setTranslationConfiguration(await getTranslationConfiguration());
+    } catch (caught) {
+      setTranslationConfigurationError(caught instanceof Error ? caught.message : "Failed to load translation configuration.");
+    } finally {
+      setTranslationConfigurationBusy(false);
+    }
+  }
+
+  async function handleOpenConfiguration() {
+    setConfigurationOpen(true);
+    await loadTranslationProviderConfiguration();
   }
 
   async function handleLoadScenario() {
@@ -164,7 +186,17 @@ export default function App() {
            AI Document Generator
           </h1>
         </div>
-        <ProgressStepper currentStep={currentStep} sessionId={snapshot.sessionId} />
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => void handleOpenConfiguration()}
+            className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-ink shadow-panel backdrop-blur transition hover:border-ember"
+          >
+            <Settings2 className="h-4 w-4" />
+            Configuration
+          </button>
+          <ProgressStepper currentStep={currentStep} sessionId={snapshot.sessionId} />
+        </div>
       </header>
 
       <div className="mb-6">
@@ -206,6 +238,15 @@ export default function App() {
         <Route path="/export/:sessionId" element={<ExportRoute snapshot={snapshot} onSnapshotChange={setSnapshot} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+
+      <TranslationConfigurationDialog
+        open={configurationOpen}
+        loading={translationConfigurationBusy}
+        error={translationConfigurationError}
+        configuration={translationConfiguration}
+        onClose={() => setConfigurationOpen(false)}
+        onRefresh={() => void loadTranslationProviderConfiguration()}
+      />
     </div>
   );
 }

@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     llm_base_url: str = Field(default="http://localhost:8050/v1", alias="LLM_BASE_URL")
     llm_api_key: str = Field(default="local-llm", alias="LLM_API_KEY")
     llm_model: str = Field(default="llama.cpp", alias="LLM_MODEL")
+    translation_provider: str = Field(default="llm", alias="TRANSLATION_PROVIDER")
+    translation_source_language: str | None = Field(default=None, alias="TRANSLATION_SOURCE_LANGUAGE")
+    azure_translator_endpoint: str = Field(default="https://api.cognitive.microsofttranslator.com", alias="AZURE_TRANSLATOR_ENDPOINT")
+    azure_translator_key: str | None = Field(default=None, alias="AZURE_TRANSLATOR_KEY")
+    azure_translator_region: str | None = Field(default=None, alias="AZURE_TRANSLATOR_REGION")
+    google_translate_api_key: str | None = Field(default=None, alias="GOOGLE_TRANSLATE_API_KEY")
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
     storage_root: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[2] / "data")
     vector_store_root: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[2] / "data" / "vectorstores")

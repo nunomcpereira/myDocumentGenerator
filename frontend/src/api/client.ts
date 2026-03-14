@@ -5,6 +5,7 @@ import type {
   LoadScenarioResponse,
   SaveScenarioResponse,
   ScenarioSummary,
+  TranslationConfigurationResponse,
 } from "../lib/types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
@@ -93,6 +94,11 @@ export async function saveScenario(params: {
     }),
   });
   return handleResponse<SaveScenarioResponse>(response);
+}
+
+export async function getTranslationConfiguration(): Promise<TranslationConfigurationResponse> {
+  const response = await fetch(`${API_BASE_URL}/config/translation`);
+  return handleResponse<TranslationConfigurationResponse>(response);
 }
 
 export function buildExportDownloadUrl(sessionId: string): string {

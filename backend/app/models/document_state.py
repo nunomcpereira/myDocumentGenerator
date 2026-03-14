@@ -112,6 +112,24 @@ class ExportResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+TranslationProviderId = Literal["llm", "azure", "google"]
+
+
+class TranslationProviderOption(BaseModel):
+    id: TranslationProviderId
+    label: str
+    description: str
+    configured: bool
+    required_env: list[str] = Field(default_factory=list)
+
+
+class TranslationConfigurationResponse(BaseModel):
+    active_provider: TranslationProviderId
+    options: list[TranslationProviderOption] = Field(default_factory=list)
+    source: str = ".env"
+    restart_required: bool = True
+
+
 class ExampleSnippet(BaseModel):
     file_name: str
     quality: Literal["good", "bad"]

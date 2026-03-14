@@ -37,6 +37,20 @@ docker compose up --build
 
 The backend defaults to `http://localhost:8000`, and the frontend is served at `http://localhost:3000`.
 
+## Translation Providers
+
+The export pipeline supports three translation backends, selected through [backend/.env.example](backend/.env.example):
+
+- `TRANSLATION_PROVIDER=llm` uses the current chat-model translation prompt and the existing `LLM_*` settings.
+- `TRANSLATION_PROVIDER=azure` uses Azure Translator Text with `AZURE_TRANSLATOR_ENDPOINT`, `AZURE_TRANSLATOR_KEY`, and `AZURE_TRANSLATOR_REGION`.
+- `TRANSLATION_PROVIDER=google` uses Google Translate with `GOOGLE_TRANSLATE_API_KEY`.
+
+Optional:
+
+- `TRANSLATION_SOURCE_LANGUAGE` sets the source language code for Azure or Google requests. Leave it empty to let the provider auto-detect the source language.
+
+After changing the translation provider settings, restart the backend or recreate the Docker Compose services.
+
 ## llama.cpp from Docker
 
 When the backend runs on your laptop, `LLM_BASE_URL=http://localhost:8050/v1` is correct. When the backend runs inside Docker, `localhost` points at the container, not your laptop, so `docker-compose.yml` overrides the backend to use `http://host.docker.internal:8050/v1`.

@@ -62,6 +62,23 @@ export type ExportResponse = {
   warnings: string[];
 };
 
+export type TranslationProviderId = "llm" | "azure" | "google";
+
+export type TranslationProviderOption = {
+  id: TranslationProviderId;
+  label: string;
+  description: string;
+  configured: boolean;
+  required_env: string[];
+};
+
+export type TranslationConfigurationResponse = {
+  active_provider: TranslationProviderId;
+  options: TranslationProviderOption[];
+  source: string;
+  restart_required: boolean;
+};
+
 export type ScenarioSummary = {
   scenario_id: string;
   template_file_name?: string | null;
