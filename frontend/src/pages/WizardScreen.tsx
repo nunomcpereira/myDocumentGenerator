@@ -21,9 +21,9 @@ export function WizardScreen({
   scenarioBusy,
 }: WizardScreenProps) {
   return (
-    <div className="space-y-6">
+    <div>
       <section className="rounded-[2rem] border border-white/60 bg-white/78 p-8 shadow-panel backdrop-blur">
-        <p className="text-xs uppercase tracking-[0.24em] text-steel">Wizard</p>
+        <p className="text-xs uppercase tracking-[0.24em] text-steel">Start</p>
         <h1 className="mt-3 font-serif text-4xl text-ink">Choose how you want to begin</h1>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-steel">
           Start from a fresh template or reopen an existing scenario. The wizard sits before ingest, refinement, and export so the workflow always begins from an explicit choice.
@@ -33,7 +33,7 @@ export function WizardScreen({
           <button
             type="button"
             onClick={onStartFromScratch}
-            className="group rounded-[2rem] border border-stone-200 bg-[#fff8ef] p-6 text-left shadow-panel transition hover:border-ember"
+            className="wizard-entry-card wizard-entry-card-light group rounded-[2rem] border border-stone-200 bg-[#fff8ef] p-6 text-left shadow-panel transition hover:border-ember"
           >
             <div className="flex items-center justify-between gap-4">
               <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-ink text-sand">
@@ -47,30 +47,41 @@ export function WizardScreen({
             </p>
           </button>
 
-          <section className="rounded-[2rem] border border-white/60 bg-[#172028] p-6 text-sand shadow-panel">
+          <section className="wizard-entry-card wizard-entry-card-dark rounded-[2rem] border border-white/60 bg-[#172028] p-6 text-sand shadow-panel">
             <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-sand">
               <FolderOpen className="h-5 w-5" />
             </div>
             <h2 className="mt-6 font-serif text-3xl text-white">Start from an existing scenario</h2>
             <p className="mt-3 text-sm leading-7 text-sand/75">
-              Restore the saved template, enhancement document, examples, draft content, and export settings from a previous run.
+              Pick one of the saved scenario IDs below to restore a previous run.
             </p>
+
+            <div className="mt-6 rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
+              <p className="text-xs uppercase tracking-[0.24em] text-sand/60">Saved scenarios</p>
+              <p className="mt-2 text-sm leading-6 text-sand/80">
+                Select an ID and load it directly from this card.
+              </p>
+
+              <div className="mt-4">
+                <ScenarioControls
+                  scenarios={scenarios}
+                  scenarioId={scenarioId}
+                  onScenarioIdChange={onScenarioIdChange}
+                  onLoad={onLoadScenario}
+                  onSave={async () => {}}
+                  busy={scenarioBusy}
+                  canSave={false}
+                  mode="load-only"
+                  embedded
+                  hideHeader
+                  hideManualInput
+                  hideScenarioChips
+                />
+              </div>
+            </div>
           </section>
         </div>
       </section>
-
-      <ScenarioControls
-        scenarios={scenarios}
-        scenarioId={scenarioId}
-        onScenarioIdChange={onScenarioIdChange}
-        onLoad={onLoadScenario}
-        onSave={async () => {}}
-        busy={scenarioBusy}
-        canSave={false}
-        mode="load-only"
-        title="Load a saved scenario"
-        description="Pick a scenario to continue with all previously saved assets and the current draft state."
-      />
     </div>
   );
 }

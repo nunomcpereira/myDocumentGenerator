@@ -58,8 +58,15 @@ export type ExportResponse = {
   session_id: string;
   archive_path: string;
   generated_files: string[];
+  generated_documents: GeneratedExportFile[];
   output_file_name?: string | null;
   warnings: string[];
+};
+
+export type GeneratedExportFile = {
+  language: string;
+  file_name: string;
+  download_path: string;
 };
 
 export type TranslationProviderId = "llm" | "azure" | "google";

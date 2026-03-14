@@ -105,10 +105,17 @@ class ExportRequest(BaseModel):
     output_file_name: str | None = None
 
 
+class GeneratedExportFile(BaseModel):
+    language: str
+    file_name: str
+    download_path: str
+
+
 class ExportResponse(BaseModel):
     session_id: str
     archive_path: str
     generated_files: list[str]
+    generated_documents: list[GeneratedExportFile] = Field(default_factory=list)
     output_file_name: str | None = None
     warnings: list[str] = Field(default_factory=list)
 

@@ -1,9 +1,9 @@
 import { Download, FileOutput, LoaderCircle } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
 
-import { buildExportDownloadUrl, exportDocuments } from "../api/client";
-import type { SessionSnapshot } from "../lib/types";
+import { buildExportDownloadUrl, buildSessionFileUrl, exportDocuments, listExportFiles } from "../api/client";
+import type { GeneratedExportFile, SessionSnapshot } from "../lib/types";
 
 export const defaultLanguages = ["English", "Spanish", "French", "German", "Portuguese"];
 
@@ -25,13 +25,39 @@ export function ExportScreen({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [archiveReady, setArchiveReady] = useState(false);
-  const [generatedFiles, setGeneratedFiles] = useState<string[]>([]);
+  const [generatedFiles, setGeneratedFiles] = useState<GeneratedExportFile[]>([]);
 
   if (!snapshot.sessionId) {
     return <Navigate to="/" replace />;
   }
 
   const downloadUrl = useMemo(() => buildExportDownloadUrl(snapshot.sessionId!), [snapshot.sessionId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadExistingExportFiles() {
+      try {
+        const files = await listExportFiles(snapshot.sessionId!);
+        if (cancelled) {
+          return;
+        }
+        setGeneratedFiles(files);
+        setArchiveReady(files.length > 0);
+      } catch {
+        if (!cancelled) {
+          setGeneratedFiles([]);
+          setArchiveReady(false);
+        }
+      }
+    }
+
+    void loadExistingExportFiles();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [snapshot.sessionId]);
 
   function toggleLanguage(language: string) {
     const nextLanguages = selectedLanguages.includes(language)
@@ -46,7 +72,7 @@ export function ExportScreen({
     setArchiveReady(false);
     try {
       const response = await exportDocuments(snapshot.sessionId!, selectedLanguages, outputFileName.trim() || "localized-specification");
-      setGeneratedFiles(response.generated_files);
+      setGeneratedFiles(response.generated_documents);
       setArchiveReady(true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Export failed.");
@@ -117,21 +143,31 @@ export function ExportScreen({
           <p>{generatedFiles.length} localized files generated</p>
         </div>
 
-        {archiveReady ? (
+        {archiveReady ? <div className="mt-8 flex flex-wrap gap-3">
           <a
             href={downloadUrl}
-            className="mt-8 inline-flex items-center gap-2 rounded-full bg-sand px-5 py-3 text-sm font-semibold text-ink transition hover:bg-white"
+            className="inline-flex items-center gap-2 rounded-full bg-sand px-5 py-3 text-sm font-semibold text-ink transition hover:bg-white"
           >
             <Download className="h-4 w-4" />
             Download ZIP archive
           </a>
-        ) : null}
+        </div> : null}
 
         {generatedFiles.length > 0 ? (
           <div className="mt-6 rounded-3xl bg-white/5 p-4 text-sm text-sand/80">
-            {generatedFiles.map((fileName) => (
-              <p key={fileName}>{fileName}</p>
-            ))}
+            <p className="text-xs uppercase tracking-[0.24em] text-sand/60">Individual files</p>
+            <div className="mt-4 space-y-3">
+              {generatedFiles.map((file) => (
+                <a
+                  key={file.file_name}
+                  href={buildSessionFileUrl(file.download_path)}
+                  className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-sand transition hover:bg-white/10"
+                >
+                  <span>{file.language}</span>
+                  <span className="text-sand/60">{file.file_name}</span>
+                </a>
+              ))}
+            </div>
           </div>
         ) : null}
       </section>

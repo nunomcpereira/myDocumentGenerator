@@ -81,6 +81,7 @@ class ScenarioService:
         session.prompt = prompt or session.prompt
         session.export_languages = target_languages or session.export_languages
         session.output_file_name = output_file_name or session.output_file_name or session.template_path.stem
+        self._sync_generated_artifacts(session.session_id, scenario_dir)
 
         with self._connect() as connection:
             connection.execute(
@@ -168,6 +169,7 @@ class ScenarioService:
         session_id = str(uuid4())
         session_dir = self.settings.upload_root / session_id
         session_dir.mkdir(parents=True, exist_ok=True)
+        self._restore_generated_artifacts(scenario_dir, session_id)
 
         template_source = scenario_dir / row[0]
         template_target = session_dir / template_source.name
@@ -302,6 +304,24 @@ class ScenarioService:
         target = destination_dir / source.name
         shutil.copy2(source, target)
         return target
+
+    def _sync_generated_artifacts(self, session_id: str, scenario_dir: Path) -> None:
+        source_dir = self.settings.generated_root / session_id
+        target_dir = scenario_dir / "generated"
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+        if not source_dir.exists():
+            return
+        shutil.copytree(source_dir, target_dir)
+
+    def _restore_generated_artifacts(self, scenario_dir: Path, session_id: str) -> None:
+        source_dir = scenario_dir / "generated"
+        target_dir = self.settings.generated_root / session_id
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+        if not source_dir.exists():
+            return
+        shutil.copytree(source_dir, target_dir)
 
 
 scenario_service = ScenarioService()

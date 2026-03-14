@@ -18,6 +18,7 @@ from app.models.document_state import (
     DraftSectionState,
     ExportRequest,
     ExportResponse,
+    GeneratedExportFile,
     IngestResponse,
     LoadedFileReference,
     LoadScenarioRequest,
@@ -237,10 +238,12 @@ async def export(request: ExportRequest) -> ExportResponse:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     warnings.extend(export_warnings)
+    generated_documents = build_generated_export_files(request.session_id, request.target_languages, generated_files)
     return ExportResponse(
         session_id=request.session_id,
         archive_path=str(archive_path),
         generated_files=[str(file_path) for file_path in generated_files],
+        generated_documents=generated_documents,
         output_file_name=session.output_file_name,
         warnings=warnings,
     )
@@ -257,6 +260,27 @@ async def download_export(session_id: str) -> FileResponse:
     if not archive_path.exists():
         raise HTTPException(status_code=404, detail="Export archive not found.")
     return FileResponse(path=archive_path, filename=archive_path.name, media_type="application/zip")
+
+
+@app.get("/export/{session_id}/files", response_model=list[GeneratedExportFile])
+async def list_export_files(session_id: str) -> list[GeneratedExportFile]:
+    generated_files = sorted(
+        [path for path in (settings.generated_root / session_id).glob("*.docx") if path.is_file()],
+        key=lambda path: path.name,
+    )
+    if not generated_files:
+        raise HTTPException(status_code=404, detail="No exported documents found for this session.")
+    return build_generated_export_files(session_id, infer_languages_from_paths(generated_files), generated_files)
+
+
+@app.get("/export/{session_id}/files/{file_name}")
+async def download_export_file(session_id: str, file_name: str) -> FileResponse:
+    if "/" in file_name or file_name.startswith("."):
+        raise HTTPException(status_code=400, detail="Invalid export file name.")
+    file_path = settings.generated_root / session_id / file_name
+    if file_path.suffix.lower() != ".docx" or not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Export document not found.")
+    return FileResponse(path=file_path, filename=file_path.name, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 
 @app.get("/scenarios", response_model=list[ScenarioSummary])
@@ -366,6 +390,30 @@ def resolve_draft_section(sections: list[DraftSectionState], section_id: str | N
         if normalized_title and normalize_key(section.title) == normalized_title:
             return section
     return None
+
+
+def build_generated_export_files(session_id: str, languages: list[str], generated_files: list[Path]) -> list[GeneratedExportFile]:
+    documents: list[GeneratedExportFile] = []
+    for language, file_path in zip(languages, generated_files, strict=False):
+        documents.append(
+            GeneratedExportFile(
+                language=language,
+                file_name=file_path.name,
+                download_path=f"/export/{session_id}/files/{file_path.name}",
+            )
+        )
+    return documents
+
+
+def infer_languages_from_paths(generated_files: list[Path]) -> list[str]:
+    return [infer_language_from_file_name(file_path) for file_path in generated_files]
+
+
+def infer_language_from_file_name(file_path: Path) -> str:
+    match = re.search(r"\.([^.]+)\.docx$", file_path.name, flags=re.IGNORECASE)
+    if match is None:
+        return file_path.stem
+    return match.group(1).replace("-", " ").replace("_", " ").title()
 
 
 def normalize_key(value: str | None) -> str:

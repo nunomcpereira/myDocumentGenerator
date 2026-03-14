@@ -1,4 +1,4 @@
-import { BotMessageSquare, Settings2 } from "lucide-react";
+import { BotMessageSquare, MoonStar, Settings2, SunMedium } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 
@@ -22,6 +22,10 @@ const initialSnapshot: SessionSnapshot = {
   previewMarkdown: "",
   warnings: [],
 };
+
+type ThemeMode = "light" | "dark";
+
+const themeStorageKey = "documentation-engine-theme";
 
 function RefinementRoute({ snapshot, onSnapshotChange }: { snapshot: SessionSnapshot; onSnapshotChange: (snapshot: SessionSnapshot) => void }) {
   const { sessionId } = useParams();
@@ -50,6 +54,10 @@ function ExportRoute({ snapshot, onSnapshotChange }: { snapshot: SessionSnapshot
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    const storedTheme = window.localStorage.getItem(themeStorageKey);
+    return storedTheme === "dark" ? "dark" : "light";
+  });
   const [snapshot, setSnapshot] = useState<SessionSnapshot>(() => {
     const raw = window.sessionStorage.getItem("documentation-engine-session");
     if (!raw) {
@@ -77,6 +85,7 @@ export default function App() {
   });
   const [scenarios, setScenarios] = useState<ScenarioSummary[]>([]);
   const [scenarioBusy, setScenarioBusy] = useState(false);
+  const [saveScenarioOpen, setSaveScenarioOpen] = useState(false);
   const [configurationOpen, setConfigurationOpen] = useState(false);
   const [translationConfiguration, setTranslationConfiguration] = useState<TranslationConfigurationResponse | null>(null);
   const [translationConfigurationBusy, setTranslationConfigurationBusy] = useState(false);
@@ -87,6 +96,12 @@ export default function App() {
     void refreshScenarios();
     void loadCustomCssTheme();
   }, []);
+
+  useEffect(() => {
+    document.body.classList.toggle("theme-dark", theme === "dark");
+    document.body.classList.toggle("theme-light", theme === "light");
+    window.localStorage.setItem(themeStorageKey, theme);
+  }, [theme]);
 
   useEffect(() => {
     window.sessionStorage.setItem("documentation-engine-session", JSON.stringify(snapshot));
@@ -222,6 +237,7 @@ export default function App() {
         outputFileName: response.output_file_name ?? current.outputFileName,
       }));
       await refreshScenarios();
+      setSaveScenarioOpen(false);
     } finally {
       setScenarioBusy(false);
     }
@@ -238,7 +254,7 @@ export default function App() {
           : 0;
 
   return (
-    <div data-testid="app-shell" className="mx-auto min-h-screen max-w-[1480px] px-4 py-6 sm:px-6 lg:px-10">
+    <div data-testid="app-shell" data-theme={theme} className="mx-auto min-h-screen max-w-[1480px] px-4 py-6 sm:px-6 lg:px-10">
       <header className="mb-8 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="inline-flex items-center gap-3 rounded-full border border-white/70 bg-white/75 px-4 py-2 shadow-panel backdrop-blur">
@@ -249,17 +265,35 @@ export default function App() {
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
+            onClick={() => setTheme((current) => (current === "light" ? "dark" : "light"))}
+            className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-ink shadow-panel backdrop-blur transition hover:border-ember"
+            aria-label={theme === "light" ? "Switch to dark theme" : "Switch to white theme"}
+          >
+            {theme === "light" ? <MoonStar className="h-4 w-4" /> : <SunMedium className="h-4 w-4" />}
+            {theme === "light" ? "Dark theme" : "White theme"}
+          </button>
+          <button
+            type="button"
             onClick={() => void handleOpenConfiguration()}
             className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-ink shadow-panel backdrop-blur transition hover:border-ember"
           >
             <Settings2 className="h-4 w-4" />
             Configuration
           </button>
+          {snapshot.sessionId ? (
+            <button
+              type="button"
+              onClick={() => setSaveScenarioOpen((current) => !current)}
+              className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-ink shadow-panel backdrop-blur transition hover:border-ember"
+            >
+              {saveScenarioOpen ? "Hide save scenario" : "Save scenario"}
+            </button>
+          ) : null}
           <ProgressStepper currentStep={currentStep} sessionId={snapshot.sessionId} />
         </div>
       </header>
 
-      {currentStep > 0 ? (
+      {snapshot.sessionId && saveScenarioOpen ? (
         <div className="mb-6">
           <ScenarioControls
             scenarios={scenarios}

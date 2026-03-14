@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import io
 import sqlite3
 import shutil
 import sys
+import zipfile
 from pathlib import Path
 
+from docx import Document
 import pytest
 from fastapi.testclient import TestClient
 
@@ -108,3 +111,99 @@ def test_save_and_load_scenario_persists_prompt_languages_and_draft(
     assert row is not None
     assert row[0] == "customer-onboarding-spec"
     assert "Spanish" in row[1]
+
+
+def test_save_and_load_scenario_restores_generated_export_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    docx_prompt: str,
+    sample_docx_template_path: Path,
+    sample_docx_good_example_path: Path,
+    sample_docx_bad_example_path: Path,
+    isolated_storage: Path,
+) -> None:
+    working_template_path = tmp_path / sample_docx_template_path.name
+    shutil.copyfile(sample_docx_template_path, working_template_path)
+
+    monkeypatch.setattr(rag_service, "index_examples", lambda *args, **kwargs: [])
+
+    async def fake_generate_json(*, system_prompt: str, user_prompt: str, temperature: float = 0.2):
+        if '"assistant_message"' in user_prompt:
+            return {
+                "assistant_message": "Draft updated.",
+                "summary": "Scenario draft summary.",
+                "section_updates": [
+                    {
+                        "section_id": "section-1",
+                        "title": "Project Overview",
+                        "content": "Saved scenario overview.",
+                        "status": "complete",
+                    }
+                ],
+            }
+        if "Target language: Spanish." in system_prompt:
+            return {"sections": [{"section_id": "section-1", "title": "Resumen del proyecto", "content": "Resumen guardado."}]}
+        raise AssertionError(f"Unexpected LLM prompt: {system_prompt}")
+
+    monkeypatch.setattr(llm_provider, "generate_json", fake_generate_json)
+
+    with TestClient(app) as client:
+        result = run_batch_workflow(
+            base_url="http://testserver",
+            template_path=working_template_path,
+            good_example_paths=[sample_docx_good_example_path],
+            bad_example_paths=[sample_docx_bad_example_path],
+            message=docx_prompt,
+            languages=["Spanish"],
+            output_file_name="customer-onboarding-spec",
+            client=client,
+        )
+
+        exported_session_id = result["ingest"]["session_id"]
+        save_response = client.post(
+            "/scenarios/save",
+            json={
+                "session_id": exported_session_id,
+                "scenario_id": "Scenario With Export Files",
+                "prompt": docx_prompt,
+                "target_languages": ["Spanish"],
+                "output_file_name": "customer-onboarding-spec",
+            },
+        )
+        save_response.raise_for_status()
+
+        load_response = client.post("/scenarios/load", json={"scenario_id": "scenario-with-export-files"})
+        load_response.raise_for_status()
+        loaded_session_id = load_response.json()["session_id"]
+
+        list_exports_response = client.get(f"/export/{loaded_session_id}/files")
+        list_exports_response.raise_for_status()
+
+        archive_response = client.get(f"/export/{loaded_session_id}/download")
+        archive_response.raise_for_status()
+
+        export_files = list_exports_response.json()
+        file_download_response = client.get(export_files[0]["download_path"])
+        file_download_response.raise_for_status()
+
+    scenario_generated_dir = isolated_storage / "scenarios" / "scenario-with-export-files" / "generated"
+    restored_generated_dir = isolated_storage / "storage" / "generated" / loaded_session_id
+
+    assert scenario_generated_dir.exists()
+    assert (scenario_generated_dir / "customer-onboarding-spec.zip").exists()
+    assert (scenario_generated_dir / "customer-onboarding-spec.spanish.docx").exists()
+
+    assert restored_generated_dir.exists()
+    assert (restored_generated_dir / "customer-onboarding-spec.zip").exists()
+    assert (restored_generated_dir / "customer-onboarding-spec.spanish.docx").exists()
+
+    assert len(export_files) == 1
+    assert export_files[0]["language"] == "Spanish"
+    assert export_files[0]["file_name"] == "customer-onboarding-spec.spanish.docx"
+
+    with zipfile.ZipFile(io.BytesIO(archive_response.content)) as archive:
+        assert "customer-onboarding-spec.spanish.docx" in set(archive.namelist())
+
+    downloaded_document = Document(io.BytesIO(file_download_response.content))
+    downloaded_text = "\n".join(paragraph.text for paragraph in downloaded_document.paragraphs)
+    assert "Resumen guardado." in downloaded_text

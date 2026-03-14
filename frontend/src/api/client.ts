@@ -2,6 +2,7 @@ import type {
   ChatResponse,
   CustomCssResponse,
   ExportResponse,
+  GeneratedExportFile,
   IngestResponse,
   LoadScenarioResponse,
   SaveScenarioResponse,
@@ -129,8 +130,17 @@ export async function clearCustomCss(): Promise<TranslationConfigurationResponse
   return handleResponse<TranslationConfigurationResponse>(response);
 }
 
+export async function listExportFiles(sessionId: string): Promise<GeneratedExportFile[]> {
+  const response = await fetch(`${API_BASE_URL}/export/${sessionId}/files`);
+  return handleResponse<GeneratedExportFile[]>(response);
+}
+
 export function buildExportDownloadUrl(sessionId: string): string {
   return `${API_BASE_URL}/export/${sessionId}/download`;
+}
+
+export function buildExportFileDownloadUrl(sessionId: string, fileName: string): string {
+  return `${API_BASE_URL}/export/${sessionId}/files/${encodeURIComponent(fileName)}`;
 }
 
 export function buildSessionFileUrl(downloadPath: string): string {
