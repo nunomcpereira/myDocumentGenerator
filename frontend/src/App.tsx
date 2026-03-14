@@ -1,4 +1,4 @@
-import { BotMessageSquare, MoonStar, Settings2, SunMedium } from "lucide-react";
+import { BotMessageSquare, MoonStar, Save, Settings2, SunMedium } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 
@@ -255,41 +255,44 @@ export default function App() {
 
   return (
     <div data-testid="app-shell" data-theme={theme} className="mx-auto min-h-screen max-w-[1480px] px-4 py-6 sm:px-6 lg:px-10">
-      <header className="mb-8 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-        <div>
+      <header className="mb-8 flex flex-col gap-4">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="inline-flex items-center gap-3 rounded-full border border-white/70 bg-white/75 px-4 py-2 shadow-panel backdrop-blur">
             <BotMessageSquare className="h-4 w-4 text-ember" />
             <span className="text-sm text-ink">Documentation Generation & Localization Engine</span>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setTheme((current) => (current === "light" ? "dark" : "light"))}
-            className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-ink shadow-panel backdrop-blur transition hover:border-ember"
-            aria-label={theme === "light" ? "Switch to dark theme" : "Switch to white theme"}
-          >
-            {theme === "light" ? <MoonStar className="h-4 w-4" /> : <SunMedium className="h-4 w-4" />}
-            {theme === "light" ? "Dark theme" : "White theme"}
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleOpenConfiguration()}
-            className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-ink shadow-panel backdrop-blur transition hover:border-ember"
-          >
-            <Settings2 className="h-4 w-4" />
-            Configuration
-          </button>
-          {snapshot.sessionId ? (
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <ProgressStepper currentStep={currentStep} sessionId={snapshot.sessionId} />
+          <div className="flex flex-wrap items-center gap-3 xl:justify-end">
             <button
               type="button"
-              onClick={() => setSaveScenarioOpen((current) => !current)}
+              onClick={() => setTheme((current) => (current === "light" ? "dark" : "light"))}
+              className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-ink shadow-panel backdrop-blur transition hover:border-ember"
+              aria-label={theme === "light" ? "Switch to dark theme" : "Switch to white theme"}
+            >
+              {theme === "light" ? <MoonStar className="h-4 w-4" /> : <SunMedium className="h-4 w-4" />}
+              {theme === "light" ? "Dark theme" : "White theme"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleOpenConfiguration()}
               className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-ink shadow-panel backdrop-blur transition hover:border-ember"
             >
-              {saveScenarioOpen ? "Hide save scenario" : "Save scenario"}
+              <Settings2 className="h-4 w-4" />
+              Configuration
             </button>
-          ) : null}
-          <ProgressStepper currentStep={currentStep} sessionId={snapshot.sessionId} />
+            {snapshot.sessionId ? (
+              <button
+                type="button"
+                onClick={() => setSaveScenarioOpen((current) => !current)}
+                className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-ink shadow-panel backdrop-blur transition hover:border-ember"
+              >
+                <Save className="h-4 w-4" />
+                {saveScenarioOpen ? "Hide save scenario" : "Save scenario"}
+              </button>
+            ) : null}
+          </div>
         </div>
       </header>
 
