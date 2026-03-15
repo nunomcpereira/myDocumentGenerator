@@ -75,6 +75,7 @@ class IngestResponse(BaseModel):
 class ChatRequest(BaseModel):
     session_id: str
     message: str
+    mcp_servers: list[str] | None = None
 
 
 class ChatSectionUpdate(BaseModel):
@@ -104,6 +105,7 @@ class ExportRequest(BaseModel):
     session_id: str
     target_languages: list[str]
     output_file_name: str | None = None
+    mcp_servers: list[str] | None = None
 
 
 class GeneratedExportFile(BaseModel):

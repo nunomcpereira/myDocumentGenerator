@@ -312,3 +312,10 @@ body.theme-dark .wizard-scenario-select option {
   background-color: #202b38;
   color: #f3ecdf;
 }
+
+body.theme-dark .markdown-preview pre,
+body.theme-dark pre {
+  background-color: rgba(26, 35, 45, 0.98) !important;
+  border-color: rgba(174, 190, 208, 0.28) !important;
+  color: #eef4fb !important;
+}

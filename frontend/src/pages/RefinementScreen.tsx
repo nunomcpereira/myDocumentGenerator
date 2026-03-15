@@ -4,14 +4,17 @@ import { Navigate } from "react-router-dom";
 import { buildSessionFileUrl, sendChatMessage } from "../api/client";
 import { ChatPanel } from "../components/ChatPanel";
 import { MarkdownPreview } from "../components/MarkdownPreview";
-import type { ChatMessage, SessionSnapshot } from "../lib/types";
+import { McpServerSelector } from "../components/McpServerSelector";
+import type { ChatMessage, McpServerCatalogResponse, SessionSnapshot } from "../lib/types";
 
 type RefinementScreenProps = {
   snapshot: SessionSnapshot;
+  mcpCatalog: McpServerCatalogResponse | null;
+  onSelectedMcpServersChange: (serverNames: string[]) => void;
   onUpdated: (snapshot: SessionSnapshot) => void;
 };
 
-export function RefinementScreen({ snapshot, onUpdated }: RefinementScreenProps) {
+export function RefinementScreen({ snapshot, mcpCatalog, onSelectedMcpServersChange, onUpdated }: RefinementScreenProps) {
   const [messages, setMessages] = useState<ChatMessage[]>(() => [
     {
       role: "assistant",
@@ -21,6 +24,7 @@ export function RefinementScreen({ snapshot, onUpdated }: RefinementScreenProps)
   ]);
   const [busy, setBusy] = useState(false);
   const [llmAvailable, setLlmAvailable] = useState(true);
+  const [previewMode, setPreviewMode] = useState<"html" | "markdown">("html");
   const deferredPreviewMarkdown = useDeferredValue(snapshot.previewMarkdown);
 
   if (!snapshot.sessionId) {
@@ -42,7 +46,7 @@ export function RefinementScreen({ snapshot, onUpdated }: RefinementScreenProps)
     setBusy(true);
     setMessages((current) => [...current, { role: "user", content: message }]);
     try {
-      const response = await sendChatMessage(snapshot.sessionId!, message);
+      const response = await sendChatMessage(snapshot.sessionId!, message, snapshot.mcpServers);
       setMessages((current) => [...current, { role: "assistant", content: response.assistant_message }]);
       setLlmAvailable(response.llm_available);
       startTransition(() => {
@@ -83,6 +87,12 @@ export function RefinementScreen({ snapshot, onUpdated }: RefinementScreenProps)
         </div>
       </div>
 
+        <McpServerSelector
+          mcpCatalog={mcpCatalog}
+          selectedMcpServers={snapshot.mcpServers}
+          onSelectedMcpServersChange={onSelectedMcpServersChange}
+        />
+
       <section className="panel-surface rounded-[2rem] border border-white/60 bg-white/75 p-6 shadow-panel">
         <p className="text-xs uppercase tracking-[0.24em] text-steel">Loaded files</p>
         <div className="mt-4 flex flex-wrap gap-3">
@@ -100,9 +110,9 @@ export function RefinementScreen({ snapshot, onUpdated }: RefinementScreenProps)
         </div>
       </section>
 
-      <div className="grid min-h-[65vh] gap-6 xl:grid-cols-2">
+      <div className="grid min-h-[58vh] gap-6 xl:grid-cols-[0.88fr_1.12fr]">
         <ChatPanel messages={messages} busy={busy} llmAvailable={llmAvailable} onSend={handleSend} />
-        <MarkdownPreview value={deferredPreviewMarkdown} />
+        <MarkdownPreview value={deferredPreviewMarkdown} mode={previewMode} onModeChange={setPreviewMode} />
       </div>
     </div>
   );

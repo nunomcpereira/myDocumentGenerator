@@ -21,6 +21,14 @@ uvicorn app.main:app --reload
 
 Use Python 3.12 or 3.13 for local backend setup. The current pinned dependency set does not install cleanly on Python 3.14 because of upstream wheel support.
 
+To start the backend and frontend together outside Docker from the repository root:
+
+```bash
+./startdev.sh
+```
+
+The script prefers the repository-level `.venv` first, then `backend/.venv`, and starts the frontend with `npm run dev`.
+
 ### Frontend
 
 ```bash

@@ -77,23 +77,23 @@ export async function ingestDocuments(params: {
   return handleResponse<IngestResponse>(response);
 }
 
-export async function sendChatMessage(sessionId: string, message: string): Promise<ChatResponse> {
+export async function sendChatMessage(sessionId: string, message: string, mcpServers: string[]): Promise<ChatResponse> {
   return requestJson<ChatResponse>(`${API_BASE_URL}/chat`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ session_id: sessionId, message }),
+    body: JSON.stringify({ session_id: sessionId, message, mcp_servers: mcpServers }),
   });
 }
 
-export async function exportDocuments(sessionId: string, targetLanguages: string[], outputFileName: string): Promise<ExportResponse> {
+export async function exportDocuments(sessionId: string, targetLanguages: string[], outputFileName: string, mcpServers: string[]): Promise<ExportResponse> {
   return requestJson<ExportResponse>(`${API_BASE_URL}/export`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ session_id: sessionId, target_languages: targetLanguages, output_file_name: outputFileName }),
+    body: JSON.stringify({ session_id: sessionId, target_languages: targetLanguages, output_file_name: outputFileName, mcp_servers: mcpServers }),
   }, { retryOnNetworkError: 1 });
 }
 

@@ -71,7 +71,7 @@ export function ExportScreen({
     setBusy(true);
     setError(null);
     try {
-      const response = await exportDocuments(snapshot.sessionId!, selectedLanguages, effectiveOutputFileName);
+      const response = await exportDocuments(snapshot.sessionId!, selectedLanguages, effectiveOutputFileName, snapshot.mcpServers);
       setGeneratedFiles(response.generated_documents);
       setArchiveReady(true);
     } catch (caught) {

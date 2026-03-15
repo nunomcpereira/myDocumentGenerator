@@ -48,6 +48,18 @@ app.add_middleware(
 )
 
 
+def normalize_mcp_servers(mcp_servers: list[str]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in mcp_servers:
+        candidate = item.strip()
+        if not candidate or candidate in seen:
+            continue
+        normalized.append(candidate)
+        seen.add(candidate)
+    return normalized
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "timestamp": datetime.now(UTC).isoformat()}
@@ -122,6 +134,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
         session = session_store.get(request.session_id)
     except SessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if request.mcp_servers is not None:
+        session.mcp_servers = normalize_mcp_servers(request.mcp_servers)
 
     retrieval_context = rag_service.retrieve(request.session_id, request.message)
     negative_constraints = rag_service.build_negative_constraints(retrieval_context.bad_examples)
@@ -212,6 +227,8 @@ async def export(request: ExportRequest) -> ExportResponse:
 
     translation_payload: dict[str, dict[str, str]] = {}
     warnings = list(session.warnings)
+    if request.mcp_servers is not None:
+        session.mcp_servers = normalize_mcp_servers(request.mcp_servers)
     session.export_languages = request.target_languages
     session.output_file_name = request.output_file_name or session.output_file_name or session.template_path.stem
     session_store.update(session.session_id, session)

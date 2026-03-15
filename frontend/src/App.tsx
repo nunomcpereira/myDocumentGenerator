@@ -28,12 +28,29 @@ type ThemeMode = "light" | "dark";
 
 const themeStorageKey = "documentation-engine-theme";
 
-function RefinementRoute({ snapshot, onSnapshotChange }: { snapshot: SessionSnapshot; onSnapshotChange: (snapshot: SessionSnapshot) => void }) {
+function RefinementRoute({
+  snapshot,
+  mcpCatalog,
+  onSelectedMcpServersChange,
+  onSnapshotChange,
+}: {
+  snapshot: SessionSnapshot;
+  mcpCatalog: McpServerCatalogResponse | null;
+  onSelectedMcpServersChange: (serverNames: string[]) => void;
+  onSnapshotChange: (snapshot: SessionSnapshot) => void;
+}) {
   const { sessionId } = useParams();
   if (!snapshot.sessionId || snapshot.sessionId !== sessionId) {
     return <Navigate to="/" replace />;
   }
-  return <RefinementScreen snapshot={snapshot} onUpdated={onSnapshotChange} />;
+  return (
+    <RefinementScreen
+      snapshot={snapshot}
+      mcpCatalog={mcpCatalog}
+      onSelectedMcpServersChange={onSelectedMcpServersChange}
+      onUpdated={onSnapshotChange}
+    />
+  );
 }
 
 function ExportRoute({ snapshot, onSnapshotChange }: { snapshot: SessionSnapshot; onSnapshotChange: (snapshot: SessionSnapshot) => void }) {
@@ -329,9 +346,6 @@ export default function App() {
             mode="save-only"
             title="Save the current scenario"
             description="Capture the template, enhancement document, examples, draft state, and export settings under a reusable scenario ID."
-            mcpCatalog={mcpCatalog}
-            selectedMcpServers={snapshot.mcpServers}
-            onSelectedMcpServersChange={(mcpServers) => setSnapshot((current) => ({ ...current, mcpServers }))}
           />
         </div>
       ) : null}
@@ -355,9 +369,6 @@ export default function App() {
               onLoadScenario={handleLoadScenario}
               onStartFromScratch={() => navigate("/ingest")}
               scenarioBusy={scenarioBusy}
-              mcpCatalog={mcpCatalog}
-              selectedMcpServers={snapshot.mcpServers}
-              onSelectedMcpServersChange={(mcpServers) => setSnapshot((current) => ({ ...current, mcpServers }))}
             />
           }
         />
@@ -374,7 +385,14 @@ export default function App() {
         />
         <Route
           path="/refine/:sessionId"
-          element={<RefinementRoute snapshot={snapshot} onSnapshotChange={setSnapshot} />}
+          element={(
+            <RefinementRoute
+              snapshot={snapshot}
+              mcpCatalog={mcpCatalog}
+              onSelectedMcpServersChange={(mcpServers) => setSnapshot((current) => ({ ...current, mcpServers }))}
+              onSnapshotChange={setSnapshot}
+            />
+          )}
         />
         <Route path="/export/:sessionId" element={<ExportRoute snapshot={snapshot} onSnapshotChange={setSnapshot} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
