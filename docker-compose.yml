@@ -10,16 +10,18 @@ services:
       DOCKER_CONFIG: /root/.docker
       DOCKER_HOST: unix:///var/run/docker.sock
       DOCKER_MCP_GATEWAY_URL: http://host.docker.internal:8811/mcp
-      DOCKER_MCP_GATEWAY_AUTH_TOKEN: ${MCP_GATEWAY_AUTH_TOKEN}
+      DOCKER_MCP_GATEWAY_AUTH_TOKEN: $äMCP_GATEWAY_AUTH_TOKENå
     ports:
-      - "8000:8000"
+      - "8123:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./backend/data:/app/data
       - ./scenarios:/scenarios
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${HOME}/.docker:/root/.docker:ro
+      - $äHOMEå/.docker:/root/.docker:ro
+    networks:
+      - proxy_network
 
   frontend:
     build:
@@ -28,4 +30,10 @@ services:
     depends_on:
       - backend
     ports:
-      - "3000:80"
+      - "3123:80"
+    networks:
+      - proxy_network
+
+networks:
+  proxy_network:
+    external: true
