@@ -33,6 +33,7 @@ export function ExportScreen({
 
   const downloadUrl = useMemo(() => buildExportDownloadUrl(snapshot.sessionId!), [snapshot.sessionId]);
   const effectiveOutputFileName = outputFileName.trim() || "localized-specification";
+  const hasGeneratedArtifacts = archiveReady || generatedFiles.length > 0;
 
   useEffect(() => {
     let cancelled = false;
@@ -134,7 +135,7 @@ export function ExportScreen({
         {error ? <p className="mt-4 text-sm text-rose-700">{error}</p> : null}
       </section>
 
-      <section className="panel-surface rounded-[2rem] border border-white/60 bg-[#11131a] p-8 text-sand shadow-panel">
+      <section className="panel-surface relative overflow-hidden rounded-[2rem] border border-white/60 bg-[#11131a] p-8 text-sand shadow-panel">
         <p className="text-xs uppercase tracking-[0.24em] text-sand/60">Artifacts</p>
         <h2 className="mt-3 font-serif text-3xl">Export package</h2>
         <div className="mt-6 space-y-4 text-sm leading-7 text-sand/80">
@@ -153,19 +154,25 @@ export function ExportScreen({
           </div>
         ) : null}
 
-        {archiveReady ? <div className="mt-8 flex flex-wrap gap-3">
-          <a
-            href={downloadUrl}
-            className="inline-flex items-center gap-2 rounded-full bg-sand px-5 py-3 text-sm font-semibold text-ink transition hover:bg-white"
-          >
-            <Download className="h-4 w-4" />
-            Download ZIP archive
-          </a>
-        </div> : null}
+        <div className="mt-8 min-h-[3.5rem] flex flex-wrap gap-3">
+          {archiveReady ? (
+            <a
+              href={downloadUrl}
+              className="inline-flex items-center gap-2 rounded-full bg-sand px-5 py-3 text-sm font-semibold text-ink transition hover:bg-white"
+            >
+              <Download className="h-4 w-4" />
+              Download ZIP archive
+            </a>
+          ) : (
+            <div className="flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm text-sand/60">
+              ZIP archive will appear here when export finishes.
+            </div>
+          )}
+        </div>
 
-        {generatedFiles.length > 0 ? (
-          <div className="mt-6 rounded-3xl bg-white/5 p-4 text-sm text-sand/80">
-            <p className="text-xs uppercase tracking-[0.24em] text-sand/60">Individual files</p>
+        <div className="mt-6 min-h-[13rem] rounded-3xl bg-white/5 p-4 text-sm text-sand/80">
+          <p className="text-xs uppercase tracking-[0.24em] text-sand/60">Individual files</p>
+          {hasGeneratedArtifacts ? (
             <div className="mt-4 space-y-3">
               {generatedFiles.map((file) => (
                 <a
@@ -178,8 +185,12 @@ export function ExportScreen({
                 </a>
               ))}
             </div>
-          </div>
-        ) : null}
+          ) : (
+            <div className="mt-4 flex min-h-[9rem] items-center justify-center rounded-2xl border border-dashed border-white/10 bg-white/5 px-4 text-center text-sand/60">
+              Generated localized documents will stay listed here once the export completes.
+            </div>
+          )}
+        </div>
       </section>
     </div>
   );

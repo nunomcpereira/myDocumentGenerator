@@ -253,9 +253,13 @@ class LLMProvider:
             "Authorization": f"Bearer {self.settings.llm_api_key}",
             "Content-Type": "application/json",
         }
+        timeout = httpx.Timeout(
+            timeout=self.settings.llm_request_timeout_seconds,
+            connect=min(self.settings.llm_connect_timeout_seconds, self.settings.llm_request_timeout_seconds),
+        )
 
         try:
-            async with httpx.AsyncClient(timeout=self.settings.request_timeout_seconds) as client:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(
                     f"{self.settings.llm_base_url.rstrip('/')}/chat/completions",
                     json=payload,
@@ -268,7 +272,11 @@ class LLMProvider:
             ) from exc
         except httpx.TimeoutException as exc:
             raise LLMOfflineError(
-                "The local LLM endpoint timed out. Check whether llama.cpp is responsive and the model is loaded."
+                (
+                    "The local LLM endpoint timed out while waiting for a response. "
+                    f"Current LLM timeout: {self.settings.llm_request_timeout_seconds:.0f}s. "
+                    "Check whether llama.cpp is responsive, the model is fully loaded, or increase LLM_REQUEST_TIMEOUT_SECONDS."
+                )
             ) from exc
         except httpx.HTTPStatusError as exc:
             detail = exc.response.text.strip() or str(exc)

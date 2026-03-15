@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     scenarios_db_path: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[3] / "scenarios" / "scenarios.db")
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     request_timeout_seconds: float = 45.0
+    llm_request_timeout_seconds: float = Field(default=240.0, alias="LLM_REQUEST_TIMEOUT_SECONDS")
+    llm_connect_timeout_seconds: float = Field(default=10.0, alias="LLM_CONNECT_TIMEOUT_SECONDS")
     docker_mcp_command: str = Field(default="docker mcp", alias="DOCKER_MCP_COMMAND")
     docker_mcp_timeout_seconds: float = Field(default=5.0, alias="DOCKER_MCP_TIMEOUT_SECONDS")
     docker_mcp_sse_read_timeout_seconds: float = Field(default=3600.0, alias="DOCKER_MCP_SSE_READ_TIMEOUT_SECONDS")
