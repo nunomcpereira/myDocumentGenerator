@@ -14,6 +14,8 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from app.main import app
+from app.main import render_preview_markdown
+from app.services.session_store import session_store
 from app.services.llm_provider import llm_provider
 from app.services.rag_service import rag_service
 from scripts.run_batch_workflow import run_batch_workflow
@@ -33,7 +35,7 @@ def test_checked_in_docx_fixtures_generate_expected_output(
 
     monkeypatch.setattr(rag_service, "index_examples", lambda *args, **kwargs: [])
 
-    async def fake_generate_json(*, system_prompt: str, user_prompt: str, temperature: float = 0.2):
+    async def fake_generate_json(*, system_prompt: str, user_prompt: str, temperature: float = 0.2, mcp_servers=None):
         if '"assistant_message"' in user_prompt:
             return {
                 "assistant_message": "Captured the compliance onboarding specification and filled all required sections.",
@@ -144,3 +146,61 @@ def test_checked_in_docx_fixtures_generate_expected_output(
 def docx_text(path: Path) -> list[str]:
     document = Document(str(path))
     return [paragraph.text.strip() for paragraph in document.paragraphs if paragraph.text.strip()]
+
+
+def test_existing_docx_images_are_reflected_in_preview(
+    isolated_storage: Path,
+    sample_docx_template_path: Path,
+    sample_docx_enhancement_with_image_path: Path,
+) -> None:
+    with TestClient(app) as client:
+        with sample_docx_template_path.open("rb") as template_file, sample_docx_enhancement_with_image_path.open("rb") as enhancement_file:
+            response = client.post(
+                "/ingest",
+                files={
+                    "template": (
+                        sample_docx_template_path.name,
+                        template_file,
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    ),
+                    "existing_document": (
+                        sample_docx_enhancement_with_image_path.name,
+                        enhancement_file,
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    ),
+                },
+            )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "/files/enhancement_image/" in payload["preview_markdown"]
+
+    session = session_store.get(payload["session_id"])
+    rendered_preview = render_preview_markdown(session)
+    assert "/files/enhancement_image/" in rendered_preview
+
+
+def test_template_docx_images_are_reflected_in_preview_when_no_existing_document_is_uploaded(
+    isolated_storage: Path,
+    sample_docx_enhancement_with_image_path: Path,
+) -> None:
+    with TestClient(app) as client:
+        with sample_docx_enhancement_with_image_path.open("rb") as template_file:
+            response = client.post(
+                "/ingest",
+                files={
+                    "template": (
+                        sample_docx_enhancement_with_image_path.name,
+                        template_file,
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    ),
+                },
+            )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "/files/enhancement_image/" in payload["preview_markdown"]
+
+    session = session_store.get(payload["session_id"])
+    rendered_preview = render_preview_markdown(session)
+    assert "/files/enhancement_image/" in rendered_preview

@@ -746,6 +746,311 @@ def test_chat_falls_back_to_user_assignment_when_llm_returns_no_section_updates(
     assert "Nuno Pereira" in payload["preview_markdown"]
 
 
+def test_chat_can_append_new_section_when_llm_returns_a_new_title(
+    monkeypatch: pytest.MonkeyPatch,
+    sample_template_path: Path,
+    isolated_storage: Path,
+) -> None:
+    monkeypatch.setattr(rag_service, "index_examples", lambda *args, **kwargs: [])
+
+    async def fake_generate_json(*, system_prompt: str, user_prompt: str, temperature: float = 0.2, mcp_servers=None):
+        if '"assistant_message"' in user_prompt:
+            return {
+                "assistant_message": "Added the Conclusion section.",
+                "summary": "A new conclusion section was added.",
+                "section_updates": [
+                    {
+                        "title": "Conclusion",
+                        "content": "2026-03-15 18:12:00 WET",
+                        "status": "complete",
+                    }
+                ],
+            }
+        raise AssertionError(f"Unexpected prompt: {system_prompt}")
+
+    monkeypatch.setattr(llm_provider, "generate_json", fake_generate_json)
+
+    with TestClient(app) as client:
+        with sample_template_path.open("rb") as template_handle:
+            ingest_response = client.post(
+                "/ingest",
+                files={
+                    "template": (
+                        sample_template_path.name,
+                        template_handle.read(),
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    )
+                },
+            )
+        ingest_response.raise_for_status()
+        session_id = ingest_response.json()["session_id"]
+
+        chat_response = client.post(
+            "/chat",
+            json={"session_id": session_id, "message": "Add a new section named Conclusion with the date and time of today."},
+        )
+        chat_response.raise_for_status()
+
+    payload = chat_response.json()
+    dynamic_section = next(section for section in payload["draft_state"]["sections"] if section["title"] == "Conclusion")
+    assert dynamic_section["content"] == "2026-03-15 18:12:00 WET"
+    assert "## Conclusion" in payload["preview_markdown"]
+
+
+def test_chat_can_append_new_section_from_user_request_when_llm_returns_no_updates(
+    monkeypatch: pytest.MonkeyPatch,
+    sample_template_path: Path,
+    isolated_storage: Path,
+) -> None:
+    monkeypatch.setattr(rag_service, "index_examples", lambda *args, **kwargs: [])
+
+    async def fake_generate_json(*, system_prompt: str, user_prompt: str, temperature: float = 0.2, mcp_servers=None):
+        if '"assistant_message"' in user_prompt:
+            return {
+                "assistant_message": "Adding a new section named Conclusion with today's date and time.",
+                "summary": "Conclusion section added.",
+                "section_updates": [],
+            }
+        raise AssertionError(f"Unexpected prompt: {system_prompt}")
+
+    monkeypatch.setattr(llm_provider, "generate_json", fake_generate_json)
+
+    with TestClient(app) as client:
+        with sample_template_path.open("rb") as template_handle:
+            ingest_response = client.post(
+                "/ingest",
+                files={
+                    "template": (
+                        sample_template_path.name,
+                        template_handle.read(),
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    )
+                },
+            )
+        ingest_response.raise_for_status()
+        session_id = ingest_response.json()["session_id"]
+
+        chat_response = client.post(
+            "/chat",
+            json={"session_id": session_id, "message": "Add a new section named Conclusion with the date and time of today."},
+        )
+        chat_response.raise_for_status()
+
+    payload = chat_response.json()
+    dynamic_section = next(section for section in payload["draft_state"]["sections"] if section["title"] == "Conclusion")
+    assert dynamic_section["content"]
+    assert "## Conclusion" in payload["preview_markdown"]
+
+
+def test_chat_can_place_move_and_delete_sections_from_user_requests(
+    monkeypatch: pytest.MonkeyPatch,
+    sample_template_path: Path,
+    isolated_storage: Path,
+) -> None:
+    monkeypatch.setattr(rag_service, "index_examples", lambda *args, **kwargs: [])
+
+    async def fake_generate_json(*, system_prompt: str, user_prompt: str, temperature: float = 0.2, mcp_servers=None):
+        if '"assistant_message"' in user_prompt:
+            return {
+                "assistant_message": "Applied the requested structural edit.",
+                "summary": "Draft structure updated.",
+                "section_updates": [],
+                "section_operations": [],
+            }
+        raise AssertionError(f"Unexpected prompt: {system_prompt}")
+
+    monkeypatch.setattr(llm_provider, "generate_json", fake_generate_json)
+
+    with TestClient(app) as client:
+        with sample_template_path.open("rb") as template_handle:
+            ingest_response = client.post(
+                "/ingest",
+                files={
+                    "template": (
+                        sample_template_path.name,
+                        template_handle.read(),
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    )
+                },
+            )
+        ingest_response.raise_for_status()
+        session_id = ingest_response.json()["session_id"]
+
+        add_response = client.post(
+            "/chat",
+            json={"session_id": session_id, "message": "Add a new section named Introduction with Saturday at the top."},
+        )
+        add_response.raise_for_status()
+
+        move_response = client.post(
+            "/chat",
+            json={"session_id": session_id, "message": "Move the Functional Requirements section after the Introduction section."},
+        )
+        move_response.raise_for_status()
+
+        delete_response = client.post(
+            "/chat",
+            json={"session_id": session_id, "message": "Delete the Project Overview section."},
+        )
+        delete_response.raise_for_status()
+
+    payload = delete_response.json()
+    section_titles = [section["title"] for section in payload["draft_state"]["sections"]]
+    assert section_titles == ["Introduction", "Functional Requirements"]
+    assert "## Introduction" in payload["preview_markdown"]
+    assert "## Project Overview" not in payload["preview_markdown"]
+
+
+def test_export_respects_structural_section_operations(
+    monkeypatch: pytest.MonkeyPatch,
+    sample_template_path: Path,
+    isolated_storage: Path,
+) -> None:
+    monkeypatch.setattr(rag_service, "index_examples", lambda *args, **kwargs: [])
+
+    async def fake_generate_json(*, system_prompt: str, user_prompt: str, temperature: float = 0.2, mcp_servers=None):
+        if '"assistant_message"' in user_prompt:
+            return {
+                "assistant_message": "Applied the requested structural edit.",
+                "summary": "Draft structure updated.",
+                "section_updates": [],
+                "section_operations": [
+                    {
+                        "action": "add",
+                        "title": "Introduction",
+                        "content": "Opening notes.",
+                        "position": "top",
+                        "status": "complete",
+                    },
+                    {
+                        "action": "move",
+                        "title": "Functional Requirements",
+                        "position": "after",
+                        "relative_title": "Introduction",
+                    },
+                    {
+                        "action": "delete",
+                        "title": "Project Overview",
+                    },
+                ],
+            }
+        raise AssertionError(f"Unexpected prompt: {system_prompt}")
+
+    async def fake_translate_sections(*, session, language: str, good_examples):
+        assert language == "Spanish"
+        translated: dict[str, str] = {}
+        for section in session.draft_state.sections:
+            if section.title == "Introduction":
+                translated[f"{section.section_id}::title"] = "Introduccion"
+                translated[f"{section.section_id}::content"] = "Notas de apertura."
+                translated[section.section_id] = "Notas de apertura."
+        return translated
+
+    monkeypatch.setattr(llm_provider, "generate_json", fake_generate_json)
+    monkeypatch.setattr(translation_service, "translate_sections", fake_translate_sections)
+
+    with TestClient(app) as client:
+        with sample_template_path.open("rb") as template_handle:
+            ingest_response = client.post(
+                "/ingest",
+                files={
+                    "template": (
+                        sample_template_path.name,
+                        template_handle.read(),
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    )
+                },
+            )
+        ingest_response.raise_for_status()
+        session_id = ingest_response.json()["session_id"]
+
+        chat_response = client.post(
+            "/chat",
+            json={"session_id": session_id, "message": "Add Introduction to the top, move Functional Requirements after it, and delete Project Overview."},
+        )
+        chat_response.raise_for_status()
+
+        export_response = client.post(
+            "/export",
+            json={"session_id": session_id, "target_languages": ["Spanish"], "output_file_name": "structured-spec"},
+        )
+        export_response.raise_for_status()
+
+    exported_path = Path(export_response.json()["generated_files"][0])
+    document = Document(str(exported_path))
+    text_lines = [paragraph.text.strip() for paragraph in document.paragraphs if paragraph.text.strip()]
+    assert text_lines[0] == "Introduccion"
+    assert text_lines[1] == "Notas de apertura."
+    assert "Project Overview" not in text_lines
+    assert "Functional Requirements" in text_lines
+
+
+def test_export_can_recover_session_after_in_memory_store_is_cleared(
+    monkeypatch: pytest.MonkeyPatch,
+    sample_template_path: Path,
+    isolated_storage: Path,
+) -> None:
+    monkeypatch.setattr(rag_service, "index_examples", lambda *args, **kwargs: [])
+
+    async def fake_generate_json(*, system_prompt: str, user_prompt: str, temperature: float = 0.2, mcp_servers=None):
+        if '"assistant_message"' in user_prompt:
+            return {
+                "assistant_message": "Captured the scope.",
+                "summary": "Draft ready.",
+                "section_updates": [
+                    {
+                        "section_id": "section-1",
+                        "title": "Project Overview",
+                        "content": "Persistent export scope.",
+                        "status": "complete",
+                    }
+                ],
+            }
+        raise AssertionError(f"Unexpected prompt: {system_prompt}")
+
+    async def fake_translate_sections(*, session, language: str, good_examples):
+        return {
+            "section-1::title": "Resumen del proyecto",
+            "section-1::content": "Alcance persistente de exportacion.",
+            "section-1": "Alcance persistente de exportacion.",
+        }
+
+    monkeypatch.setattr(llm_provider, "generate_json", fake_generate_json)
+    monkeypatch.setattr(translation_service, "translate_sections", fake_translate_sections)
+
+    with TestClient(app) as client:
+        with sample_template_path.open("rb") as template_handle:
+            ingest_response = client.post(
+                "/ingest",
+                files={
+                    "template": (
+                        sample_template_path.name,
+                        template_handle.read(),
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    )
+                },
+            )
+        ingest_response.raise_for_status()
+        session_id = ingest_response.json()["session_id"]
+
+        chat_response = client.post(
+            "/chat",
+            json={"session_id": session_id, "message": "Set Project Overview to Persistent export scope."},
+        )
+        chat_response.raise_for_status()
+
+        session_store._sessions.clear()
+
+        export_response = client.post(
+            "/export",
+            json={"session_id": session_id, "target_languages": ["Spanish"], "output_file_name": "persistent-spec"},
+        )
+        export_response.raise_for_status()
+
+    exported_path = Path(export_response.json()["generated_files"][0])
+    assert exported_path.exists()
+
+
 def test_translation_configuration_endpoint_reports_active_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(translation_service.settings, "translation_provider", "google")
     monkeypatch.setattr(translation_service.settings, "google_translate_api_key", "fake-key")

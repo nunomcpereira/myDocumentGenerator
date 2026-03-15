@@ -39,6 +39,7 @@ export type IngestResponse = {
   session_id: string;
   template: TemplateStructure;
   draft_state: DocumentDraftState;
+  preview_markdown: string;
   loaded_files: LoadedFileReference[];
   output_file_name?: string | null;
   warnings: string[];

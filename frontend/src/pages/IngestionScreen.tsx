@@ -28,9 +28,6 @@ export function IngestionScreen({ onInitialized }: IngestionScreenProps) {
 
     try {
       const response = await ingestDocuments({ template, existingDocument, goodExamples, badExamples });
-      const previewMarkdown = response.draft_state.sections
-        .map((section) => `## ${section.title}\n\n${section.content || "_Pending input_"}`)
-        .join("\n\n");
 
       onInitialized({
         sessionId: response.session_id,
@@ -42,7 +39,7 @@ export function IngestionScreen({ onInitialized }: IngestionScreenProps) {
         loadedFiles: response.loaded_files,
         template: response.template,
         draftState: response.draft_state,
-        previewMarkdown: `# ${response.template.file_name}\n\n${previewMarkdown}`,
+        previewMarkdown: response.preview_markdown,
         warnings: response.warnings,
       });
     } catch (caught) {

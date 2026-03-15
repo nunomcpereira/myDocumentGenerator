@@ -44,8 +44,11 @@ class SessionContext(BaseModel):
     session_id: str
     template_path: Path
     template_structure: TemplateStructure
+    original_template_structure: TemplateStructure | None = None
     draft_state: DocumentDraftState
     enhancement_document_path: Path | None = None
+    enhancement_image_paths: list[Path] = Field(default_factory=list)
+    enhancement_section_image_paths: dict[str, list[Path]] = Field(default_factory=dict)
     good_example_paths: list[Path] = Field(default_factory=list)
     bad_example_paths: list[Path] = Field(default_factory=list)
     scenario_id: str | None = None
@@ -67,6 +70,7 @@ class IngestResponse(BaseModel):
     session_id: str
     template: TemplateStructure
     draft_state: DocumentDraftState
+    preview_markdown: str = ""
     loaded_files: list[LoadedFileReference] = Field(default_factory=list)
     output_file_name: str | None = None
     warnings: list[str] = Field(default_factory=list)
@@ -85,10 +89,22 @@ class ChatSectionUpdate(BaseModel):
     status: Literal["missing", "in_progress", "complete"] = "in_progress"
 
 
+class ChatSectionOperation(BaseModel):
+    action: Literal["add", "move", "delete"]
+    section_id: str | None = None
+    title: str | None = None
+    content: str = ""
+    status: Literal["missing", "in_progress", "complete"] = "in_progress"
+    position: Literal["top", "end", "before", "after"] | None = None
+    relative_section_id: str | None = None
+    relative_title: str | None = None
+
+
 class ChatResult(BaseModel):
     assistant_message: str
     summary: str | None = None
     section_updates: list[ChatSectionUpdate] = Field(default_factory=list)
+    section_operations: list[ChatSectionOperation] = Field(default_factory=list)
 
 
 class ChatResponse(BaseModel):

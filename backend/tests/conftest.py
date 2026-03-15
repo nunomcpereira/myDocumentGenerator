@@ -45,6 +45,11 @@ def sample_docx_bad_example_path(docx_fixtures_dir: Path) -> Path:
 
 
 @pytest.fixture
+def sample_docx_enhancement_with_image_path(docx_fixtures_dir: Path) -> Path:
+    return docx_fixtures_dir / "sample_enhancement_with_image.docx"
+
+
+@pytest.fixture
 def expected_docx_output_path(docx_fixtures_dir: Path) -> Path:
     return docx_fixtures_dir / "expected_final_output.docx"
 

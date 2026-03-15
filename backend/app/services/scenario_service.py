@@ -199,14 +199,25 @@ class ScenarioService:
         draft_state.session_id = session_id
         mcp_servers = self._normalize_mcp_servers(json.loads(row[7] or "[]"))
         warnings.extend(self._build_mcp_server_warnings(mcp_servers))
+        template_structure = TemplateStructure.model_validate(json.loads(row[4]))
+        enhancement_image_paths, enhancement_section_image_paths, image_warnings = ingestion_service.extract_preview_assets(
+            session_id=session_id,
+            template_path=template_target,
+            template_structure=template_structure,
+            enhancement_document_path=enhancement_path,
+        )
+        warnings.extend(image_warnings)
 
         return SessionContext(
             session_id=session_id,
             scenario_id=normalized_id,
             template_path=template_target,
-            template_structure=TemplateStructure.model_validate(json.loads(row[4])),
+            template_structure=template_structure,
+            original_template_structure=ingestion_service._parse_template(template_target),
             draft_state=draft_state,
             enhancement_document_path=enhancement_path,
+            enhancement_image_paths=enhancement_image_paths,
+            enhancement_section_image_paths=enhancement_section_image_paths,
             good_example_paths=good_paths,
             bad_example_paths=bad_paths,
             prompt=row[6],

@@ -14,6 +14,7 @@ from app.models.document_state import (
     ChatRequest,
     ChatResponse,
     ChatResult,
+    ChatSectionOperation,
     CustomCssResponse,
     DraftSectionState,
     ExportRequest,
@@ -26,6 +27,7 @@ from app.models.document_state import (
     SaveScenarioRequest,
     SaveScenarioResponse,
     ScenarioSummary,
+    TemplateSection,
     TranslationConfigurationResponse,
 )
 from app.services.docker_mcp_service import docker_mcp_service
@@ -122,6 +124,7 @@ async def ingest(
         session_id=session.session_id,
         template=session.template_structure,
         draft_state=session.draft_state,
+        preview_markdown=render_preview_markdown(session),
         loaded_files=build_loaded_files(session),
         output_file_name=session.output_file_name,
         warnings=session.warnings,
@@ -176,14 +179,159 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
     updated_sections = {section.section_id: section for section in session.draft_state.sections}
     applied_updates = 0
+    applied_structure_operations = 0
+    for operation in result.section_operations:
+        if apply_section_operation(session, operation):
+            applied_structure_operations += 1
+
     for incoming in result.section_updates:
-        existing = resolve_draft_section(session.draft_state.sections, incoming.section_id, incoming.title)
-        if existing is None:
-            continue
-        existing.content = incoming.content
-        existing.status = incoming.status
-        existing.last_updated_at = datetime.now(UTC)
-        applied_updates += 1
+        if apply_section_update(session, incoming.section_id, incoming.title, incoming.content, incoming.status):
+            applied_updates += 1
+
+    if applied_updates == 0 and applied_structure_operations == 0:
+        fallback_operation = infer_structure_operation(request.message, session.draft_state.sections)
+        if fallback_operation is not None and apply_section_operation(session, fallback_operation):
+            applied_structure_operations += 1
+        else:
+            fallback_update = infer_section_assignment_from_message(request.message, session.draft_state.sections)
+            if fallback_update is not None:
+                fallback_section, fallback_value = fallback_update
+                fallback_section.content = fallback_value
+                fallback_section.status = "complete"
+                fallback_section.last_updated_at = datetime.now(UTC)
+                applied_updates += 1
+
+    session.draft_state.summary = result.summary or session.draft_state.summary
+    session.draft_state.updated_at = datetime.now(UTC)
+    session.prompt = request.message
+    session_store.update(session.session_id, session)
+
+    preview_markdown = render_preview_markdown(session)
+    next_sections = [section.title for section in session.draft_state.sections if section.status != "complete"]
+    return ChatResponse(
+        session_id=session.session_id,
+        assistant_message=result.assistant_message,
+        draft_state=session.draft_state,
+        preview_markdown=preview_markdown,
+        next_required_sections=next_sections,
+        warnings=warnings,
+        llm_available=llm_available,
+    )
+
+
+def apply_section_update(session, section_id: str | None, title: str | None, content: str, status: str) -> bool:
+    section_index = find_section_index(session.draft_state.sections, section_id, title)
+    if section_index is None:
+        if title and content.strip():
+            insert_dynamic_section(session, title=title, content=content, status=status)
+            return True
+        return False
+
+    draft_section = session.draft_state.sections[section_index]
+    template_section = session.template_structure.sections[section_index]
+    if title and normalize_key(title) != normalize_key(draft_section.title):
+        draft_section.title = title.strip()
+        template_section.title = title.strip()
+        refresh_outline(session)
+    draft_section.content = content
+    draft_section.status = status if status in {"missing", "in_progress", "complete"} else "in_progress"
+    draft_section.last_updated_at = datetime.now(UTC)
+    return True
+
+
+def apply_section_operation(session, operation: ChatSectionOperation) -> bool:
+    if operation.action == "add":
+        if not operation.title:
+            return False
+        insert_dynamic_section(
+            session,
+            title=operation.title,
+            content=operation.content,
+            status=operation.status,
+            position=operation.position,
+            relative_section_id=operation.relative_section_id,
+            relative_title=operation.relative_title,
+        )
+        return True
+
+    section_index = find_section_index(session.draft_state.sections, operation.section_id, operation.title)
+    if section_index is None:
+        return False
+
+    if operation.action == "delete":
+        delete_section(session, section_index)
+        return True
+
+    if operation.action == "move":
+        move_section(
+            session,
+            section_index,
+            position=operation.position,
+            relative_section_id=operation.relative_section_id,
+            relative_title=operation.relative_title,
+        )
+        return True
+
+    return False
+
+
+@app.post("/export", response_model=ExportResponse)
+async def export(request: ExportRequest) -> ExportResponse:
+    try:
+        session = session_store.get(request.session_id)
+    except SessionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if session.template_structure.file_type != "docx":
+        raise HTTPException(
+            status_code=400,
+            detail="Export requires the source template to be .docx so styling and layout can be preserved.",
+        )
+
+    translation_payload: dict[str, dict[str, str]] = {}
+    warnings = list(session.warnings)
+    if request.mcp_servers is not None:
+        session.mcp_servers = normalize_mcp_servers(request.mcp_servers)
+    session.export_languages = request.target_languages
+    session.output_file_name = request.output_file_name or session.output_file_name or session.template_path.stem
+    session_store.update(session.session_id, session)
+
+    for language in request.target_languages:
+        style_context = rag_service.retrieve(session.session_id, f"tone and style guidance for {language}", limit=2)
+        try:
+            translation_payload[language] = await translation_service.translate_sections(
+                session=session,
+                language=language,
+                good_examples=style_context.good_examples,
+            )
+        except TranslationProviderConfigurationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except (TranslationProviderError, LLMProviderError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    output_directory = settings.generated_root / request.session_id
+    try:
+        archive_path, generated_files, export_warnings = translation_service.inject_translations(
+            session=session,
+            translations=translation_payload,
+            output_directory=output_directory,
+            output_file_name=session.output_file_name,
+        )
+    except ExportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    warnings.extend(export_warnings)
+    generated_documents = build_generated_export_files(request.session_id, request.target_languages, generated_files)
+    return ExportResponse(
+        session_id=request.session_id,
+        archive_path=str(archive_path),
+        generated_files=[str(file_path) for file_path in generated_files],
+        generated_documents=generated_documents,
+        output_file_name=session.output_file_name,
+        warnings=warnings,
+    )
+
+
 
     if applied_updates == 0:
         fallback_update = infer_section_assignment_from_message(request.message, session.draft_state.sections)
@@ -193,6 +341,12 @@ async def chat(request: ChatRequest) -> ChatResponse:
             fallback_section.status = "complete"
             fallback_section.last_updated_at = datetime.now(UTC)
             applied_updates += 1
+        else:
+            inferred_section = infer_new_section_request(request.message)
+            if inferred_section is not None:
+                title, content = inferred_section
+                append_dynamic_section(session, title=title, content=content, status="complete")
+                applied_updates += 1
 
     session.draft_state.summary = result.summary or session.draft_state.summary
     session.draft_state.updated_at = datetime.now(UTC)
@@ -367,7 +521,10 @@ def build_chat_system_prompt(session) -> str:
         "You are an interviewing analyst helping complete a structured specification document. "
         "Ask concise follow-up questions only when information is missing, and update the draft with any user-provided facts. "
         "When the user asks to set or replace a value in a named section, you must return a section_updates entry for that section. "
-        "Always use the exact section_id values provided below whenever possible. Return JSON with assistant_message, summary, and section_updates.\n"
+        "When the user asks to add, move, reorder, or delete sections, return section_operations that describe the structural change. "
+        "Use action=add for new sections, action=move for reordering, and action=delete for removals. "
+        "For moves and inserts, use position=top, end, before, or after, and include the relative section title or id when needed. "
+        "Always use the exact section_id values provided below whenever possible. Return JSON with assistant_message, summary, section_updates, and section_operations.\n"
         f"Template outline:\n{outline}"
     )
     return llm_provider.with_scenario_mcp_context(base_prompt, session.mcp_servers)
@@ -388,7 +545,8 @@ def build_chat_user_prompt(session, message: str, good_examples, negative_constr
         f"Good examples for tone and structure:\n{positive_context}\n\n"
         f"Negative constraints derived from bad examples:\n{negative_context}\n\n"
         "Return JSON in this shape: "
-        '{"assistant_message": string, "summary": string, "section_updates": [{"section_id": string, "title": string, "content": string, "status": "missing|in_progress|complete"}]}'
+        '{"assistant_message": string, "summary": string, "section_updates": [{"section_id": string, "title": string, "content": string, "status": "missing|in_progress|complete"}], "section_operations": [{"action": "add|move|delete", "section_id": string | null, "title": string | null, "content": string, "status": "missing|in_progress|complete", "position": "top|end|before|after" | null, "relative_section_id": string | null, "relative_title": string | null}]}. '
+        "Use section_updates for content changes and section_operations for structural changes."
     )
 
 
@@ -397,8 +555,11 @@ def render_preview_markdown(session) -> str:
     if session.draft_state.summary:
         parts.append(session.draft_state.summary)
     for section in session.draft_state.sections:
+        section_images = session.enhancement_section_image_paths.get(section.section_id, [])
         parts.append(f"## {section.title}")
-        parts.append(section.content or "_Pending input_")
+        parts.append(section.content or ("_Imported visual reference_" if section_images else "_Pending input_"))
+        for index, image_path in enumerate(section_images, start=1):
+            parts.append(f"![{section.title} image {index}](/sessions/{session.session_id}/files/enhancement_image/{image_path.name})")
     return "\n\n".join(parts)
 
 
@@ -449,6 +610,114 @@ def normalize_key(value: str | None) -> str:
     return " ".join(value.lower().replace("_", " ").replace("-", " ").split())
 
 
+def find_section_index(sections: list[DraftSectionState], section_id: str | None, title: str | None) -> int | None:
+    normalized_section_id = normalize_key(section_id)
+    normalized_title = normalize_key(title)
+    for index, section in enumerate(sections):
+        if section_id and section.section_id == section_id:
+            return index
+        if normalized_section_id and normalize_key(section.section_id) == normalized_section_id:
+            return index
+        if normalized_section_id and normalize_key(section.title) == normalized_section_id:
+            return index
+        if normalized_title and normalize_key(section.title) == normalized_title:
+            return index
+    return None
+
+
+def refresh_outline(session) -> None:
+    session.template_structure.extracted_outline = [section.title for section in session.template_structure.sections]
+
+
+def resolve_insert_index(
+    session,
+    *,
+    position: str | None,
+    relative_section_id: str | None = None,
+    relative_title: str | None = None,
+) -> int:
+    if position == "top":
+        return 0
+    if position in {None, "end"}:
+        return len(session.draft_state.sections)
+
+    reference_index = find_section_index(session.draft_state.sections, relative_section_id, relative_title)
+    if reference_index is None:
+        return len(session.draft_state.sections)
+    if position == "before":
+        return reference_index
+    if position == "after":
+        return reference_index + 1
+    return len(session.draft_state.sections)
+
+
+def insert_dynamic_section(
+    session,
+    *,
+    title: str,
+    content: str,
+    status: str,
+    position: str | None = None,
+    relative_section_id: str | None = None,
+    relative_title: str | None = None,
+) -> DraftSectionState:
+    section_id = build_dynamic_section_id(session.draft_state.sections)
+    insert_index = resolve_insert_index(
+        session,
+        position=position,
+        relative_section_id=relative_section_id,
+        relative_title=relative_title,
+    )
+    session.template_structure.sections.insert(
+        insert_index,
+        TemplateSection(
+            id=section_id,
+            title=title.strip(),
+            level=1,
+            prompt_hint="Added during refinement",
+        ),
+    )
+    draft_section = DraftSectionState(
+        section_id=section_id,
+        title=title.strip(),
+        content=content,
+        status=status if status in {"missing", "in_progress", "complete"} else "complete",
+        last_updated_at=datetime.now(UTC),
+    )
+    session.draft_state.sections.insert(insert_index, draft_section)
+    refresh_outline(session)
+    return draft_section
+
+
+def delete_section(session, section_index: int) -> None:
+    section_id = session.draft_state.sections[section_index].section_id
+    session.draft_state.sections.pop(section_index)
+    session.template_structure.sections.pop(section_index)
+    session.enhancement_section_image_paths.pop(section_id, None)
+    refresh_outline(session)
+
+
+def move_section(
+    session,
+    section_index: int,
+    *,
+    position: str | None,
+    relative_section_id: str | None = None,
+    relative_title: str | None = None,
+) -> None:
+    draft_section = session.draft_state.sections.pop(section_index)
+    template_section = session.template_structure.sections.pop(section_index)
+    destination_index = resolve_insert_index(
+        session,
+        position=position,
+        relative_section_id=relative_section_id,
+        relative_title=relative_title,
+    )
+    session.draft_state.sections.insert(destination_index, draft_section)
+    session.template_structure.sections.insert(destination_index, template_section)
+    refresh_outline(session)
+
+
 def infer_section_assignment_from_message(message: str, sections: list[DraftSectionState]) -> tuple[DraftSectionState, str] | None:
     quoted_values = re.findall(r'"([^"]+)"', message)
     quoted_values.extend(match for match in re.findall(r"'([^']+)'", message) if match not in quoted_values)
@@ -485,6 +754,113 @@ def infer_section_assignment_from_message(message: str, sections: list[DraftSect
                 return mentioned_sections[0], value
 
     return None
+
+
+def infer_structure_operation(message: str, sections: list[DraftSectionState]) -> ChatSectionOperation | None:
+    normalized_message = " ".join(message.strip().split())
+    if not normalized_message:
+        return None
+
+    add_match = re.search(
+        r"(?:add|create|insert)\s+(?:a\s+)?(?:new\s+)?section\s+(?:named|called|titled)\s+[\"']?(?P<title>.+?)[\"']?(?=(?:\s+(?:with|containing|that contains|to include|including|before|after|at|on)\b|[.!?]|$))(?P<rest>.*)$",
+        normalized_message,
+        re.IGNORECASE,
+    )
+    if add_match is not None:
+        title = add_match.group("title").strip().strip(" .")
+        rest = add_match.group("rest").strip()
+        if title:
+            position, relative_title = infer_position(rest)
+            content = infer_requested_content(rest)
+            return ChatSectionOperation(
+                action="add",
+                title=title.title(),
+                content=content or "Section added during refinement.",
+                status="complete",
+                position=position,
+                relative_title=relative_title,
+            )
+
+    delete_match = re.search(
+        r"(?:delete|remove)\s+(?:the\s+)?(?:section\s+)?[\"']?(?P<title>.+?)[\"']?(?=(?:\s+section)?(?:[.!?]|$))",
+        normalized_message,
+        re.IGNORECASE,
+    )
+    if delete_match is not None:
+        title = delete_match.group("title").strip().strip(" .")
+        if title and find_section_index(sections, None, title) is not None:
+            return ChatSectionOperation(action="delete", title=title.title())
+
+    move_match = re.search(
+        r"(?:move|put|place)\s+(?:the\s+)?[\"']?(?P<title>.+?)(?:\s+section)?[\"']?\s+(?P<rest>(?:to\s+)?(?:the\s+)?(?:top|beginning|start|end|bottom|before\s+.+|after\s+.+))$",
+        normalized_message,
+        re.IGNORECASE,
+    )
+    if move_match is not None:
+        title = move_match.group("title").strip().strip(" .")
+        rest = move_match.group("rest").strip()
+        position, relative_title = infer_position(rest)
+        if title and position:
+            return ChatSectionOperation(
+                action="move",
+                title=title.title(),
+                position=position,
+                relative_title=relative_title,
+            )
+
+    return None
+
+
+def infer_position(message_tail: str) -> tuple[str | None, str | None]:
+    lowered = message_tail.lower()
+    if "top" in lowered or "beginning" in lowered or "start" in lowered:
+        return "top", None
+    if re.search(r"\b(?:end|bottom)\b", lowered):
+        return "end", None
+
+    before_match = re.search(r"before\s+(?:the\s+)?[\"']?(?P<title>[^\"'.]+)(?:\s+section)?[\"']?(?:[.!?]|$)", message_tail, re.IGNORECASE)
+    if before_match is not None:
+        return "before", before_match.group("title").strip().strip(" .").title()
+
+    after_match = re.search(r"after\s+(?:the\s+)?[\"']?(?P<title>[^\"'.]+)(?:\s+section)?[\"']?(?:[.!?]|$)", message_tail, re.IGNORECASE)
+    if after_match is not None:
+        return "after", after_match.group("title").strip().strip(" .").title()
+
+    return None, None
+
+
+def infer_requested_content(message_tail: str) -> str:
+    content_match = re.search(
+        r"(?:with|containing|that contains|to include|including|with the)\s+(?P<content>.+?)(?:\s+(?:at|on)\s+(?:the\s+)?(?:top|beginning|start|end|bottom)|\s+(?:before|after)\s+.+)?$",
+        message_tail,
+        re.IGNORECASE,
+    )
+    if content_match is None:
+        return ""
+    return resolve_dynamic_section_content(content_match.group("content").strip().strip(" ."))
+
+
+def resolve_dynamic_section_content(raw_content: str) -> str:
+    if not raw_content:
+        return ""
+
+    lowered = raw_content.lower()
+    now = datetime.now().astimezone()
+    if "date and time of today" in lowered or "current date and time" in lowered or "today's date and time" in lowered:
+        return now.strftime("%Y-%m-%d %H:%M:%S %Z").strip()
+    if lowered in {"today's date", "todays date", "the date of today", "current date"}:
+        return now.strftime("%Y-%m-%d")
+    return raw_content
+
+
+def build_dynamic_section_id(sections: list[DraftSectionState]) -> str:
+    existing_ids = {section.section_id for section in sections}
+    next_index = 1
+    while True:
+        candidate = f"dynamic-section-{next_index}"
+        if candidate not in existing_ids:
+            return candidate
+        next_index += 1
 
 
 def build_loaded_files(session) -> list[LoadedFileReference]:
@@ -527,6 +903,10 @@ def resolve_session_file(session, kind: str, file_name: str) -> Path | None:
         return session.template_path
     if kind == "enhancement_document" and session.enhancement_document_path and session.enhancement_document_path.name == file_name:
         return session.enhancement_document_path
+    if kind == "enhancement_image":
+        for path in session.enhancement_image_paths:
+            if path.name == file_name:
+                return path
     if kind == "good_example":
         for path in session.good_example_paths:
             if path.name == file_name:

@@ -81,6 +81,16 @@ body.theme-dark {
   line-height: 1.7;
 }
 
+.markdown-preview img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1rem 0;
+  border-radius: 1rem;
+  border: 1px solid rgba(120, 133, 151, 0.24);
+  box-shadow: 0 18px 48px rgba(17, 19, 26, 0.08);
+}
+
 body.theme-dark .shadow-panel {
   box-shadow: 0 26px 80px rgba(0, 0, 0, 0.34);
 }

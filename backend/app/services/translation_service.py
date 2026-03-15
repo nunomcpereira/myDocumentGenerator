@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from html import unescape
 import re
 import zipfile
@@ -11,7 +12,7 @@ import httpx
 from app.core.config import get_settings
 from app.core.errors import ExportError
 from app.core.errors import TranslationProviderConfigurationError, TranslationProviderError
-from app.models.document_state import CustomCssConfiguration, ExampleSnippet, SessionContext, TemplateSection, TranslationConfigurationResponse, TranslationProviderId, TranslationProviderOption
+from app.models.document_state import CustomCssConfiguration, ExampleSnippet, SessionContext, TemplateSection, TemplateStructure, TranslationConfigurationResponse, TranslationProviderId, TranslationProviderOption
 from app.services.llm_provider import llm_provider
 from app.services.scenario_service import scenario_service
 
@@ -119,14 +120,14 @@ class TranslationService:
         for language, translated_sections in translations.items():
             target_path = output_directory / f"{base_name}.{language.lower()}.docx"
             document = DocxDocument(str(session.template_path))
-            for section in session.template_structure.sections:
-                translated_text = translated_sections.get(f"{section.id}::content") or translated_sections.get(section.id)
-                translated_title = translated_sections.get(f"{section.id}::title")
-                if not translated_text and not translated_title:
-                    continue
-                warning = self._apply_section_translation(document, section, translated_text, translated_title)
-                if warning:
-                    warnings.append(f"{language}: {warning}")
+            warnings.extend(
+                self._apply_translations_and_structure(
+                    document=document,
+                    session=session,
+                    translated_sections=translated_sections,
+                    language=language,
+                )
+            )
             document.save(str(target_path))
             generated_files.append(target_path)
 
@@ -167,6 +168,119 @@ class TranslationService:
                 translated_sections[section_id] = content
                 translated_sections[f"{section_id}::content"] = content
         return translated_sections
+
+    def _apply_translations_and_structure(
+        self,
+        *,
+        document: DocxDocument,
+        session: SessionContext,
+        translated_sections: dict[str, str],
+        language: str,
+    ) -> list[str]:
+        warnings: list[str] = []
+        original_template = session.original_template_structure or session.template_structure
+        original_sections_by_id = {section.id: section for section in original_template.sections}
+
+        for current_section in session.template_structure.sections:
+            original_section = original_sections_by_id.get(current_section.id)
+            if original_section is None:
+                continue
+            translated_text = translated_sections.get(f"{current_section.id}::content") or translated_sections.get(current_section.id)
+            translated_title = translated_sections.get(f"{current_section.id}::title") or current_section.title
+            warning = self._apply_section_translation(document, original_section, translated_text, translated_title)
+            if warning:
+                warnings.append(f"{language}: {warning}")
+
+        self._rebuild_document_body(document=document, session=session, translated_sections=translated_sections, original_template=original_template)
+        return warnings
+
+    def _rebuild_document_body(
+        self,
+        *,
+        document: DocxDocument,
+        session: SessionContext,
+        translated_sections: dict[str, str],
+        original_template: TemplateStructure,
+    ) -> None:
+        original_sections = list(original_template.sections)
+        paragraph_elements = [paragraph._element for paragraph in document.paragraphs]
+        if not paragraph_elements:
+            return
+
+        ordered_original_sections = [
+            section for section in sorted(original_sections, key=self._section_start_index) if self._section_start_index(section) is not None
+        ]
+        if not ordered_original_sections:
+            return
+
+        block_map, first_start, last_end = self._build_original_section_blocks(document, ordered_original_sections)
+        body = document._body._element
+        prefix = [deepcopy(element) for element in paragraph_elements[:first_start]] if first_start is not None else []
+        suffix = [deepcopy(element) for element in paragraph_elements[last_end:]] if last_end is not None else []
+
+        for child in list(body):
+            if child.tag.endswith("}p"):
+                body.remove(child)
+
+        insert_before = next((child for child in body if child.tag.endswith("}sectPr")), None)
+        ordered_elements: list[Any] = []
+        ordered_elements.extend(prefix)
+        for section in session.template_structure.sections:
+            if section.id in block_map:
+                ordered_elements.extend(deepcopy(element) for element in block_map[section.id])
+                continue
+            ordered_elements.extend(self._build_dynamic_section_elements(section, translated_sections))
+        ordered_elements.extend(suffix)
+
+        for element in ordered_elements:
+            if insert_before is None:
+                body.append(element)
+            else:
+                body.insert(body.index(insert_before), element)
+
+    def _build_original_section_blocks(
+        self,
+        document: DocxDocument,
+        ordered_original_sections: list[TemplateSection],
+    ) -> tuple[dict[str, list[Any]], int | None, int | None]:
+        block_map: dict[str, list[Any]] = {}
+        starts = [self._section_start_index(section) for section in ordered_original_sections]
+        valid_starts = [start for start in starts if start is not None]
+        if not valid_starts:
+            return {}, None, None
+
+        first_start = valid_starts[0]
+        last_end = 0
+        for index, section in enumerate(ordered_original_sections):
+            start = self._section_start_index(section)
+            if start is None:
+                continue
+            next_start = len(document.paragraphs)
+            for later in ordered_original_sections[index + 1:]:
+                candidate = self._section_start_index(later)
+                if candidate is not None:
+                    next_start = candidate
+                    break
+            block_map[section.id] = [document.paragraphs[position]._element for position in range(start, min(next_start, len(document.paragraphs)))]
+            last_end = max(last_end, next_start)
+        return block_map, first_start, last_end
+
+    @staticmethod
+    def _section_start_index(section: TemplateSection) -> int | None:
+        if section.heading_paragraph_index is not None:
+            return section.heading_paragraph_index
+        if section.content_paragraph_indices:
+            return min(section.content_paragraph_indices)
+        return None
+
+    def _build_dynamic_section_elements(self, section: TemplateSection, translated_sections: dict[str, str]) -> list[Any]:
+        heading_text = translated_sections.get(f"{section.id}::title") or section.title
+        body_text = translated_sections.get(f"{section.id}::content") or translated_sections.get(section.id) or ""
+        scratch_document = DocxDocument()
+        scratch_document.add_heading(heading_text, level=max(1, section.level or 1))
+        if body_text:
+            scratch_document.add_paragraph(body_text)
+        return [deepcopy(paragraph._element) for paragraph in scratch_document.paragraphs]
 
     async def _translate_with_azure(self, *, session: SessionContext, language: str) -> dict[str, str]:
         if not self.settings.azure_translator_key or not self.settings.azure_translator_region:
@@ -333,6 +447,14 @@ class TranslationService:
         translated_text: str | None,
         translated_title: str | None,
     ) -> str | None:
+        if section.heading_paragraph_index is None and not section.content_paragraph_indices:
+            heading_text = translated_title or section.title
+            if heading_text:
+                document.add_heading(heading_text, level=max(1, section.level or 1))
+            if translated_text:
+                document.add_paragraph(translated_text)
+            return None
+
         if translated_title and section.heading_paragraph_index is not None and section.heading_paragraph_index < len(document.paragraphs):
             document.paragraphs[section.heading_paragraph_index].text = translated_title
 

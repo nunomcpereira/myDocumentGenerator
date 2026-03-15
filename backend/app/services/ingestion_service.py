@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -16,6 +17,13 @@ try:
     from docx import Document as DocxDocument
 except ImportError:  # pragma: no cover - optional dependency path
     DocxDocument = None
+
+
+@dataclass
+class ImportedSection:
+    title: str
+    content: str
+    image_paths: list[Path]
 
 
 class IngestionService:
@@ -53,13 +61,23 @@ class IngestionService:
             enhancement_document_path=enhancement_document_path,
         )
         warnings.extend(draft_warnings)
+        enhancement_image_paths, enhancement_section_image_paths, image_warnings = self.extract_preview_assets(
+            session_id=session_id,
+            template_path=template_path,
+            template_structure=template_structure,
+            enhancement_document_path=enhancement_document_path,
+        )
+        warnings.extend(image_warnings)
 
         return SessionContext(
             session_id=session_id,
             template_path=template_path,
             template_structure=template_structure,
+            original_template_structure=template_structure.model_copy(deep=True),
             draft_state=draft_state,
             enhancement_document_path=enhancement_document_path,
+            enhancement_image_paths=enhancement_image_paths,
+            enhancement_section_image_paths=enhancement_section_image_paths,
             good_example_paths=saved_good_examples,
             bad_example_paths=saved_bad_examples,
             output_file_name=template_path.stem,
@@ -86,6 +104,26 @@ class IngestionService:
             good_examples.append((enhancement_document_path.name, self._read_example_text(enhancement_document_path)))
         bad_examples = [(path.name, self._read_example_text(path)) for path in bad_example_paths]
         return rag_service.index_examples(session_id, good_examples, bad_examples)
+
+    def extract_preview_assets(
+        self,
+        *,
+        session_id: str,
+        template_path: Path,
+        template_structure: TemplateStructure,
+        enhancement_document_path: Path | None,
+    ) -> tuple[list[Path], dict[str, list[Path]], list[str]]:
+        if DocxDocument is None:
+            return [], {}, []
+
+        source_path = enhancement_document_path or template_path
+        if source_path.suffix.lower() != ".docx":
+            return [], {}, []
+
+        image_output_dir = self.settings.upload_root / session_id / "preview_images"
+        imported_sections = self._extract_existing_sections(source_path, image_output_dir=image_output_dir)
+        warning_source = "enhancement document" if enhancement_document_path else "template"
+        return self._build_section_image_mapping(template_structure, imported_sections, warning_source=warning_source)
 
     def _build_initial_draft_state(
         self,
@@ -122,16 +160,16 @@ class IngestionService:
         imported_sections = self._extract_existing_sections(existing_document_path)
         matched = 0
 
-        for imported_title, imported_content in imported_sections:
-            if not imported_content.strip():
+        for imported_section in imported_sections:
+            if not imported_section.content.strip():
                 continue
-            template_section = template_sections.get(self._normalize_title(imported_title))
+            template_section = template_sections.get(self._normalize_title(imported_section.title))
             if template_section is None:
                 continue
             draft_section = draft_sections.get(template_section.id)
             if draft_section is None:
                 continue
-            draft_section.content = imported_content.strip()
+            draft_section.content = imported_section.content.strip()
             draft_section.status = "complete"
             draft_section.last_updated_at = datetime.now(UTC)
             matched += 1
@@ -150,31 +188,110 @@ class IngestionService:
 
         return warnings
 
-    def _extract_existing_sections(self, file_path: Path) -> list[tuple[str, str]]:
+    def _extract_existing_sections(self, file_path: Path, image_output_dir: Path | None = None) -> list[ImportedSection]:
         suffix = file_path.suffix.lower()
         if suffix == ".docx" and DocxDocument is not None:
             document = DocxDocument(str(file_path))
-            sections: list[tuple[str, str]] = []
+            sections: list[ImportedSection] = []
             current_title: str | None = None
             current_lines: list[str] = []
+            current_images: list[Path] = []
+            image_index = 0
+
+            def flush_current_section() -> None:
+                if current_title and (current_lines or current_images):
+                    sections.append(
+                        ImportedSection(
+                            title=current_title,
+                            content="\n".join(current_lines).strip(),
+                            image_paths=list(current_images),
+                        )
+                    )
+
             for paragraph in document.paragraphs:
                 text = paragraph.text.strip()
-                if not text:
-                    continue
                 style_name = paragraph.style.name.lower() if paragraph.style and paragraph.style.name else ""
-                if style_name.startswith("heading"):
-                    if current_title and current_lines:
-                        sections.append((current_title, "\n".join(current_lines).strip()))
+                paragraph_images, image_index = self._extract_docx_paragraph_images(
+                    document,
+                    paragraph,
+                    image_output_dir,
+                    image_index,
+                )
+
+                if style_name.startswith("heading") and text:
+                    flush_current_section()
                     current_title = text
                     current_lines = []
+                    current_images = []
                     continue
+
+                if not text and not paragraph_images:
+                    continue
+
                 if current_title is None:
                     current_title = "Imported content"
-                current_lines.append(text)
-            if current_title and current_lines:
-                sections.append((current_title, "\n".join(current_lines).strip()))
+                if text:
+                    current_lines.append(text)
+                if paragraph_images:
+                    current_images.extend(paragraph_images)
+
+            flush_current_section()
             return sections
         return []
+
+    def _build_section_image_mapping(
+        self,
+        template_structure: TemplateStructure,
+        imported_sections: list[ImportedSection],
+        *,
+        warning_source: str,
+    ) -> tuple[list[Path], dict[str, list[Path]], list[str]]:
+        image_paths_by_section: dict[str, list[Path]] = {}
+        warnings: list[str] = []
+        template_sections = {self._normalize_title(section.title): section for section in template_structure.sections}
+        unmatched_images: list[Path] = []
+
+        for imported_section in imported_sections:
+            if not imported_section.image_paths:
+                continue
+            template_section = template_sections.get(self._normalize_title(imported_section.title))
+            if template_section is None:
+                unmatched_images.extend(imported_section.image_paths)
+                continue
+            image_paths_by_section.setdefault(template_section.id, []).extend(imported_section.image_paths)
+
+        if unmatched_images and template_structure.sections:
+            first_section_id = template_structure.sections[0].id
+            image_paths_by_section.setdefault(first_section_id, []).extend(unmatched_images)
+            warnings.append(
+                f"Images from the {warning_source} could not be aligned to template headings, so they are shown in the first section preview."
+            )
+
+        all_image_paths: list[Path] = []
+        for paths in image_paths_by_section.values():
+            all_image_paths.extend(paths)
+        return all_image_paths, image_paths_by_section, warnings
+
+    @staticmethod
+    def _extract_docx_paragraph_images(document: DocxDocument, paragraph, image_output_dir: Path | None, image_index: int) -> tuple[list[Path], int]:
+        if image_output_dir is None:
+            return [], image_index
+
+        image_output_dir.mkdir(parents=True, exist_ok=True)
+        image_paths: list[Path] = []
+        for blip in paragraph._element.xpath(".//*[local-name()='blip']"):
+            rel_id = blip.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed")
+            if not rel_id:
+                continue
+            image_part = document.part.related_parts.get(rel_id)
+            if image_part is None:
+                continue
+            image_index += 1
+            suffix = Path(str(image_part.partname)).suffix or ".png"
+            image_path = image_output_dir / f"preview-image-{image_index}{suffix}"
+            image_path.write_bytes(image_part.blob)
+            image_paths.append(image_path)
+        return image_paths, image_index
 
     @staticmethod
     def _normalize_title(value: str) -> str:

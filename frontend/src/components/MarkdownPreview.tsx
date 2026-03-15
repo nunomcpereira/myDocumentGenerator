@@ -1,11 +1,23 @@
 import { memo } from "react";
 import ReactMarkdown from "react-markdown";
 
+import { buildSessionFileUrl } from "../api/client";
+
 type MarkdownPreviewProps = {
   value: string;
   mode: "html" | "markdown";
   onModeChange: (mode: "html" | "markdown") => void;
 };
+
+function resolvePreviewUrl(url: string): string {
+  if (!url.startsWith("/")) {
+    return url;
+  }
+  if (url.startsWith("/sessions/") || url.startsWith("/export/")) {
+    return buildSessionFileUrl(url);
+  }
+  return url;
+}
 
 export const MarkdownPreview = memo(function MarkdownPreview({ value, mode, onModeChange }: MarkdownPreviewProps) {
   const fallbackValue = value || "# Draft preview\n\nInitialize a template to start building the projected specification.";
@@ -43,7 +55,11 @@ export const MarkdownPreview = memo(function MarkdownPreview({ value, mode, onMo
 
       {mode === "html" ? (
         <div className="markdown-preview prose prose-stone max-w-none flex-1 overflow-y-auto pr-2">
-          <ReactMarkdown>{fallbackValue}</ReactMarkdown>
+          <ReactMarkdown
+            urlTransform={(url) => resolvePreviewUrl(url)}
+          >
+            {fallbackValue}
+          </ReactMarkdown>
         </div>
       ) : (
         <pre className="flex-1 overflow-y-auto rounded-[1.5rem] border border-stone-200 bg-white/80 p-5 font-mono text-sm leading-6 text-ink">{fallbackValue}</pre>
