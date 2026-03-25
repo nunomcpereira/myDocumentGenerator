@@ -50,6 +50,7 @@ export type ChatResponse = {
   assistant_message: string;
   draft_state: DocumentDraftState;
   preview_markdown: string;
+  prompt?: string | null;
   next_required_sections: string[];
   warnings: string[];
   llm_available: boolean;
@@ -60,12 +61,14 @@ export type ExportResponse = {
   archive_path: string;
   generated_files: string[];
   generated_documents: GeneratedExportFile[];
+  export_format: "docx" | "pdf";
   output_file_name?: string | null;
   warnings: string[];
 };
 
 export type GeneratedExportFile = {
   language: string;
+  format: "docx" | "pdf";
   file_name: string;
   download_path: string;
 };
@@ -151,8 +154,10 @@ export type SessionSnapshot = {
   sessionId: string | null;
   scenarioId: string;
   prompt: string;
+  autoApplyPromptOnRefine: boolean;
   mcpServers: string[];
   exportLanguages: string[];
+  exportFormat: "docx" | "pdf";
   outputFileName: string;
   loadedFiles: LoadedFileReference[];
   template?: TemplateStructure;

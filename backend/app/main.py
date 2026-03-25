@@ -203,7 +203,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
     session.draft_state.summary = result.summary or session.draft_state.summary
     session.draft_state.updated_at = datetime.now(UTC)
-    session.prompt = request.message
+    session.prompt = update_prompt_summary(session.prompt, request.message, result.prompt_summary)
     session_store.update(session.session_id, session)
 
     preview_markdown = render_preview_markdown(session)
@@ -213,6 +213,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         assistant_message=result.assistant_message,
         draft_state=session.draft_state,
         preview_markdown=preview_markdown,
+        prompt=session.prompt,
         next_required_sections=next_sections,
         warnings=warnings,
         llm_available=llm_available,
@@ -316,6 +317,7 @@ async def export(request: ExportRequest) -> ExportResponse:
             translations=translation_payload,
             output_directory=output_directory,
             output_file_name=session.output_file_name,
+            export_format=request.export_format,
         )
     except ExportError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -327,6 +329,7 @@ async def export(request: ExportRequest) -> ExportResponse:
         archive_path=str(archive_path),
         generated_files=[str(file_path) for file_path in generated_files],
         generated_documents=generated_documents,
+        export_format=request.export_format,
         output_file_name=session.output_file_name,
         warnings=warnings,
     )
@@ -407,6 +410,7 @@ async def export(request: ExportRequest) -> ExportResponse:
             translations=translation_payload,
             output_directory=output_directory,
             output_file_name=session.output_file_name,
+            export_format=request.export_format,
         )
     except ExportError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -418,6 +422,7 @@ async def export(request: ExportRequest) -> ExportResponse:
         archive_path=str(archive_path),
         generated_files=[str(file_path) for file_path in generated_files],
         generated_documents=generated_documents,
+        export_format=request.export_format,
         output_file_name=session.output_file_name,
         warnings=warnings,
     )
@@ -439,7 +444,11 @@ async def download_export(session_id: str) -> FileResponse:
 @app.get("/export/{session_id}/files", response_model=list[GeneratedExportFile])
 async def list_export_files(session_id: str) -> list[GeneratedExportFile]:
     generated_files = sorted(
-        [path for path in (settings.generated_root / session_id).glob("*.docx") if path.is_file()],
+        [
+            path
+            for path in (settings.generated_root / session_id).iterdir()
+            if path.is_file() and path.suffix.lower() in {".docx", ".pdf"}
+        ],
         key=lambda path: path.name,
     )
     if not generated_files:
@@ -452,9 +461,14 @@ async def download_export_file(session_id: str, file_name: str) -> FileResponse:
     if "/" in file_name or file_name.startswith("."):
         raise HTTPException(status_code=400, detail="Invalid export file name.")
     file_path = settings.generated_root / session_id / file_name
-    if file_path.suffix.lower() != ".docx" or not file_path.exists() or not file_path.is_file():
+    if file_path.suffix.lower() not in {".docx", ".pdf"} or not file_path.exists() or not file_path.is_file():
         raise HTTPException(status_code=404, detail="Export document not found.")
-    return FileResponse(path=file_path, filename=file_path.name, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    media_type = (
+        "application/pdf"
+        if file_path.suffix.lower() == ".pdf"
+        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    return FileResponse(path=file_path, filename=file_path.name, media_type=media_type)
 
 
 @app.get("/scenarios", response_model=list[ScenarioSummary])
@@ -520,11 +534,13 @@ def build_chat_system_prompt(session) -> str:
     base_prompt = (
         "You are an interviewing analyst helping complete a structured specification document. "
         "Ask concise follow-up questions only when information is missing, and update the draft with any user-provided facts. "
+        "You must also maintain a concise prompt_summary that captures only the user's instructions, constraints, scope, and decisions from the interview turns. "
+        "Do not include assistant questions, filler text, or speculative content in prompt_summary because it is saved with the scenario and may be replayed later. "
         "When the user asks to set or replace a value in a named section, you must return a section_updates entry for that section. "
         "When the user asks to add, move, reorder, or delete sections, return section_operations that describe the structural change. "
         "Use action=add for new sections, action=move for reordering, and action=delete for removals. "
         "For moves and inserts, use position=top, end, before, or after, and include the relative section title or id when needed. "
-        "Always use the exact section_id values provided below whenever possible. Return JSON with assistant_message, summary, section_updates, and section_operations.\n"
+        "Always use the exact section_id values provided below whenever possible. Return JSON with assistant_message, summary, prompt_summary, section_updates, and section_operations.\n"
         f"Template outline:\n{outline}"
     )
     return llm_provider.with_scenario_mcp_context(base_prompt, session.mcp_servers)
@@ -536,24 +552,53 @@ def build_chat_user_prompt(session, message: str, good_examples, negative_constr
         for section in session.draft_state.sections
     )
     pending_sections = ", ".join(section.title for section in session.draft_state.sections if section.status != "complete") or "none"
+    existing_prompt_summary = session.prompt or "No saved user-input summary yet."
     positive_context = "\n\n".join(snippet.content[:900] for snippet in good_examples) or "No good examples were uploaded."
     negative_context = "\n".join(f"- {constraint}" for constraint in negative_constraints) or "- No bad examples were uploaded."
     return (
         f"User message:\n{message}\n\n"
+        f"Existing saved user-input summary:\n{existing_prompt_summary}\n\n"
         f"Current draft:\n{draft_snapshot}\n\n"
         f"Pending sections: {pending_sections}\n\n"
         f"Good examples for tone and structure:\n{positive_context}\n\n"
         f"Negative constraints derived from bad examples:\n{negative_context}\n\n"
         "Return JSON in this shape: "
-        '{"assistant_message": string, "summary": string, "section_updates": [{"section_id": string, "title": string, "content": string, "status": "missing|in_progress|complete"}], "section_operations": [{"action": "add|move|delete", "section_id": string | null, "title": string | null, "content": string, "status": "missing|in_progress|complete", "position": "top|end|before|after" | null, "relative_section_id": string | null, "relative_title": string | null}]}. '
-        "Use section_updates for content changes and section_operations for structural changes."
+        '{"assistant_message": string, "summary": string, "prompt_summary": string, "section_updates": [{"section_id": string, "title": string, "content": string, "status": "missing|in_progress|complete"}], "section_operations": [{"action": "add|move|delete", "section_id": string | null, "title": string | null, "content": string, "status": "missing|in_progress|complete", "position": "top|end|before|after" | null, "relative_section_id": string | null, "relative_title": string | null}]}. '
+        "Use section_updates for content changes, section_operations for structural changes, and prompt_summary for the cumulative summary of only the user's inputs."
     )
 
 
+def update_prompt_summary(existing_summary: str | None, latest_message: str, candidate_summary: str | None) -> str | None:
+    normalized_candidate = normalize_prompt_summary(candidate_summary)
+    if normalized_candidate:
+        return normalized_candidate
+
+    normalized_latest_message = normalize_prompt_summary(latest_message)
+    if not normalized_latest_message:
+        return normalize_prompt_summary(existing_summary)
+
+    normalized_existing_summary = normalize_prompt_summary(existing_summary)
+    if not normalized_existing_summary:
+        return normalized_latest_message
+
+    if normalize_key(normalized_latest_message) in normalize_key(normalized_existing_summary):
+        return normalized_existing_summary
+
+    return f"{normalized_existing_summary}\n- {normalized_latest_message}"
+
+
+def normalize_prompt_summary(value: str | None) -> str | None:
+    if value is None:
+        return None
+    lines = [" ".join(line.split()) for line in value.splitlines()]
+    normalized_lines = [line for line in lines if line]
+    if not normalized_lines:
+        return None
+    return "\n".join(normalized_lines)
+
+
 def render_preview_markdown(session) -> str:
-    parts = [f"# {Path(session.template_path).stem}"]
-    if session.draft_state.summary:
-        parts.append(session.draft_state.summary)
+    parts: list[str] = []
     for section in session.draft_state.sections:
         section_images = session.enhancement_section_image_paths.get(section.section_id, [])
         parts.append(f"## {section.title}")
@@ -586,6 +631,7 @@ def build_generated_export_files(session_id: str, languages: list[str], generate
         documents.append(
             GeneratedExportFile(
                 language=language,
+                format=file_path.suffix.lower().lstrip("."),
                 file_name=file_path.name,
                 download_path=f"/export/{session_id}/files/{file_path.name}",
             )
@@ -598,7 +644,7 @@ def infer_languages_from_paths(generated_files: list[Path]) -> list[str]:
 
 
 def infer_language_from_file_name(file_path: Path) -> str:
-    match = re.search(r"\.([^.]+)\.docx$", file_path.name, flags=re.IGNORECASE)
+    match = re.search(r"\.([^.]+)\.(?:docx|pdf)$", file_path.name, flags=re.IGNORECASE)
     if match is None:
         return file_path.stem
     return match.group(1).replace("-", " ").replace("_", " ").title()

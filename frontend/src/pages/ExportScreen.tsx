@@ -11,6 +11,8 @@ type ExportScreenProps = {
   snapshot: SessionSnapshot;
   selectedLanguages: string[];
   onLanguagesChange: (languages: string[]) => void;
+  exportFormat: "docx" | "pdf";
+  onExportFormatChange: (format: "docx" | "pdf") => void;
   outputFileName: string;
   onOutputFileNameChange: (value: string) => void;
 };
@@ -19,6 +21,8 @@ export function ExportScreen({
   snapshot,
   selectedLanguages,
   onLanguagesChange,
+  exportFormat,
+  onExportFormatChange,
   outputFileName,
   onOutputFileNameChange,
 }: ExportScreenProps) {
@@ -72,7 +76,7 @@ export function ExportScreen({
     setBusy(true);
     setError(null);
     try {
-      const response = await exportDocuments(snapshot.sessionId!, selectedLanguages, effectiveOutputFileName, snapshot.mcpServers);
+      const response = await exportDocuments(snapshot.sessionId!, selectedLanguages, effectiveOutputFileName, exportFormat, snapshot.mcpServers);
       setGeneratedFiles(response.generated_documents);
       setArchiveReady(true);
     } catch (caught) {
@@ -88,7 +92,7 @@ export function ExportScreen({
         <p className="text-xs uppercase tracking-[0.24em] text-steel">Phase 3</p>
         <h1 className="mt-3 font-serif text-4xl text-ink">Structural translation and localized export</h1>
         <p className="mt-3 max-w-2xl text-sm leading-7 text-steel">
-          Select the target languages, then generate localized .docx files. The backend preserves the original template layout and packages the generated documents in a ZIP archive.
+          Select the target languages and export format, then generate localized files. The backend preserves the original template layout and packages the generated documents in a ZIP archive.
         </p>
 
         <div className="mt-8 flex flex-wrap gap-3">
@@ -109,6 +113,32 @@ export function ExportScreen({
               </button>
             );
           })}
+        </div>
+
+        <div className="mt-8">
+          <p className="text-xs uppercase tracking-[0.24em] text-steel">Export format</p>
+          <div className="mt-3 inline-flex rounded-full border border-stone-300 bg-white p-1 shadow-sm">
+            {[
+              { id: "docx", label: "DOCX" },
+              { id: "pdf", label: "PDF" },
+            ].map((option) => {
+              const active = exportFormat === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => onExportFormatChange(option.id as "docx" | "pdf")}
+                  className={[
+                    "rounded-full px-4 py-2 text-sm font-semibold transition",
+                    active ? "bg-ink text-sand" : "text-steel hover:text-ink",
+                  ].join(" ")}
+                  aria-pressed={active}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <label className="mt-8 block">
@@ -141,6 +171,7 @@ export function ExportScreen({
         <div className="mt-6 space-y-4 text-sm leading-7 text-sand/80">
           <p>{snapshot.template?.file_name}</p>
           <p>{effectiveOutputFileName}.zip</p>
+          <p>{exportFormat.toUpperCase()} output selected</p>
           <p>{selectedLanguages.length} target languages selected</p>
           <p>{generatedFiles.length} localized files generated</p>
         </div>

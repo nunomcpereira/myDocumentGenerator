@@ -87,13 +87,13 @@ export async function sendChatMessage(sessionId: string, message: string, mcpSer
   });
 }
 
-export async function exportDocuments(sessionId: string, targetLanguages: string[], outputFileName: string, mcpServers: string[]): Promise<ExportResponse> {
+export async function exportDocuments(sessionId: string, targetLanguages: string[], outputFileName: string, exportFormat: "docx" | "pdf", mcpServers: string[]): Promise<ExportResponse> {
   return requestJson<ExportResponse>(`${API_BASE_URL}/export`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ session_id: sessionId, target_languages: targetLanguages, output_file_name: outputFileName, mcp_servers: mcpServers }),
+    body: JSON.stringify({ session_id: sessionId, target_languages: targetLanguages, output_file_name: outputFileName, export_format: exportFormat, mcp_servers: mcpServers }),
   }, { retryOnNetworkError: 1 });
 }
 

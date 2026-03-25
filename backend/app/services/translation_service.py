@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from html import unescape
 import re
+import subprocess
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -106,14 +107,18 @@ class TranslationService:
         translations: dict[str, dict[str, str]],
         output_directory: Path,
         output_file_name: str | None = None,
+        export_format: str = "docx",
     ) -> tuple[Path, list[Path], list[str]]:
         if session.template_structure.file_type != "docx":
             raise ExportError("Export currently requires an original .docx template so layout and styling can be preserved.")
         if DocxDocument is None:
             raise ExportError("python-docx is not installed, so .docx export is unavailable.")
+        if export_format not in {"docx", "pdf"}:
+            raise ExportError("Unsupported export format. Use docx or pdf.")
 
         output_directory.mkdir(parents=True, exist_ok=True)
-        generated_files: list[Path] = []
+        self._clear_generated_outputs(output_directory)
+        generated_docx_files: list[Path] = []
         warnings: list[str] = []
         base_name = (output_file_name or session.output_file_name or session.template_path.stem).strip() or session.template_path.stem
 
@@ -129,13 +134,76 @@ class TranslationService:
                 )
             )
             document.save(str(target_path))
-            generated_files.append(target_path)
+            generated_docx_files.append(target_path)
+
+        generated_files = generated_docx_files
+        if export_format == "pdf":
+            generated_files = self._convert_docx_batch_to_pdf(generated_docx_files, output_directory)
+            for docx_file in generated_docx_files:
+                if docx_file.exists():
+                    docx_file.unlink()
 
         archive_path = output_directory / f"{base_name}.zip"
         with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for file_path in generated_files:
                 archive.write(file_path, arcname=file_path.name)
         return archive_path, generated_files, warnings
+
+    @staticmethod
+    def _clear_generated_outputs(output_directory: Path) -> None:
+        for pattern in ("*.docx", "*.pdf", "*.zip"):
+            for file_path in output_directory.glob(pattern):
+                if file_path.is_file():
+                    file_path.unlink()
+
+    def _convert_docx_batch_to_pdf(self, docx_files: list[Path], output_directory: Path) -> list[Path]:
+        if not docx_files:
+            return []
+
+        soffice_path = self._find_soffice()
+        if soffice_path is None:
+            raise ExportError("PDF export requires LibreOffice headless. Install soffice in the backend environment to enable PDF output.")
+
+        try:
+            subprocess.run(
+                [
+                    soffice_path,
+                    "--headless",
+                    "--convert-to",
+                    "pdf",
+                    "--outdir",
+                    str(output_directory),
+                    *[str(file_path) for file_path in docx_files],
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            detail = exc.stderr.strip() or exc.stdout.strip() or str(exc)
+            raise ExportError(f"LibreOffice PDF conversion failed: {detail}") from exc
+
+        generated_pdfs: list[Path] = []
+        for docx_file in docx_files:
+            pdf_path = output_directory / f"{docx_file.stem}.pdf"
+            if not pdf_path.exists():
+                raise ExportError(f"Expected PDF export was not created for {docx_file.name}.")
+            generated_pdfs.append(pdf_path)
+        return generated_pdfs
+
+    @staticmethod
+    def _find_soffice() -> str | None:
+        from shutil import which
+
+        for candidate in (
+            which("soffice"),
+            "/usr/bin/soffice",
+            "/usr/local/bin/soffice",
+            "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+        ):
+            if candidate and Path(candidate).exists():
+                return candidate
+        return None
 
     async def _translate_with_llm(
         self,

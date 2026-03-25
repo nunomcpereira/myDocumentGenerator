@@ -1051,6 +1051,254 @@ def test_export_can_recover_session_after_in_memory_store_is_cleared(
     assert exported_path.exists()
 
 
+def test_export_api_accepts_pdf_format_and_returns_pdf_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+    sample_template_path: Path,
+    isolated_storage: Path,
+) -> None:
+    monkeypatch.setattr(rag_service, "index_examples", lambda *args, **kwargs: [])
+
+    async def fake_generate_json(*, system_prompt: str, user_prompt: str, temperature: float = 0.2, mcp_servers=None):
+        if '"assistant_message"' in user_prompt:
+            return {
+                "assistant_message": "Captured the scope.",
+                "summary": "Draft ready.",
+                "section_updates": [
+                    {
+                        "section_id": "section-1",
+                        "title": "Project Overview",
+                        "content": "PDF export scope.",
+                        "status": "complete",
+                    }
+                ],
+            }
+        raise AssertionError(f"Unexpected prompt: {system_prompt}")
+
+    async def fake_translate_sections(*, session, language: str, good_examples):
+        assert language == "Spanish"
+        return {
+            "section-1::title": "Resumen del proyecto",
+            "section-1::content": "Alcance de exportacion PDF.",
+            "section-1": "Alcance de exportacion PDF.",
+        }
+
+    def fake_convert_docx_batch_to_pdf(docx_files: list[Path], output_directory: Path) -> list[Path]:
+        generated_pdfs: list[Path] = []
+        for docx_file in docx_files:
+            pdf_path = output_directory / f"{docx_file.stem}.pdf"
+            pdf_path.write_bytes(b"%PDF-1.4\n% fake pdf for test\n")
+            generated_pdfs.append(pdf_path)
+        return generated_pdfs
+
+    monkeypatch.setattr(llm_provider, "generate_json", fake_generate_json)
+    monkeypatch.setattr(translation_service, "translate_sections", fake_translate_sections)
+    monkeypatch.setattr(translation_service, "_convert_docx_batch_to_pdf", fake_convert_docx_batch_to_pdf)
+
+    with TestClient(app) as client:
+        with sample_template_path.open("rb") as template_handle:
+            ingest_response = client.post(
+                "/ingest",
+                files={
+                    "template": (
+                        sample_template_path.name,
+                        template_handle.read(),
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    )
+                },
+            )
+        ingest_response.raise_for_status()
+        session_id = ingest_response.json()["session_id"]
+
+        chat_response = client.post(
+            "/chat",
+            json={"session_id": session_id, "message": "Set Project Overview to PDF export scope."},
+        )
+        chat_response.raise_for_status()
+
+        export_response = client.post(
+            "/export",
+            json={
+                "session_id": session_id,
+                "target_languages": ["Spanish"],
+                "output_file_name": "pdf-export-spec",
+                "export_format": "pdf",
+            },
+        )
+        export_response.raise_for_status()
+        export_payload = export_response.json()
+
+        assert export_payload["export_format"] == "pdf"
+        assert len(export_payload["generated_documents"]) == 1
+        assert export_payload["generated_documents"][0]["format"] == "pdf"
+        assert export_payload["generated_documents"][0]["file_name"].endswith(".pdf")
+
+        list_response = client.get(f"/export/{session_id}/files")
+        list_response.raise_for_status()
+        listed_files = list_response.json()
+        assert listed_files[0]["format"] == "pdf"
+        assert listed_files[0]["file_name"].endswith(".pdf")
+
+        file_response = client.get(listed_files[0]["download_path"])
+        file_response.raise_for_status()
+        assert file_response.headers["content-type"].startswith("application/pdf")
+
+        archive_response = client.get(f"/export/{session_id}/download")
+        archive_response.raise_for_status()
+
+    generated_path = Path(export_payload["generated_files"][0])
+    assert generated_path.suffix.lower() == ".pdf"
+    assert generated_path.exists()
+
+    with zipfile.ZipFile(Path(export_payload["archive_path"])) as archive:
+        archive_names = set(archive.namelist())
+        assert "pdf-export-spec.spanish.pdf" in archive_names
+
+
+def test_run_batch_workflow_forwards_pdf_export_format(
+    monkeypatch: pytest.MonkeyPatch,
+    sample_template_path: Path,
+    isolated_storage: Path,
+) -> None:
+    monkeypatch.setattr(rag_service, "index_examples", lambda *args, **kwargs: [])
+
+    async def fake_generate_json(*, system_prompt: str, user_prompt: str, temperature: float = 0.2, mcp_servers=None):
+        if '"assistant_message"' in user_prompt:
+            return {
+                "assistant_message": "Captured the scope.",
+                "summary": "Draft ready.",
+                "section_updates": [
+                    {
+                        "section_id": "section-1",
+                        "title": "Project Overview",
+                        "content": "Batch PDF export scope.",
+                        "status": "complete",
+                    }
+                ],
+            }
+        raise AssertionError(f"Unexpected prompt: {system_prompt}")
+
+    async def fake_translate_sections(*, session, language: str, good_examples):
+        assert language == "Spanish"
+        return {
+            "section-1::title": "Resumen del proyecto",
+            "section-1::content": "Alcance de exportacion PDF por batch.",
+            "section-1": "Alcance de exportacion PDF por batch.",
+        }
+
+    def fake_convert_docx_batch_to_pdf(docx_files: list[Path], output_directory: Path) -> list[Path]:
+        generated_pdfs: list[Path] = []
+        for docx_file in docx_files:
+            pdf_path = output_directory / f"{docx_file.stem}.pdf"
+            pdf_path.write_bytes(b"%PDF-1.4\n% fake batch pdf for test\n")
+            generated_pdfs.append(pdf_path)
+        return generated_pdfs
+
+    monkeypatch.setattr(llm_provider, "generate_json", fake_generate_json)
+    monkeypatch.setattr(translation_service, "translate_sections", fake_translate_sections)
+    monkeypatch.setattr(translation_service, "_convert_docx_batch_to_pdf", fake_convert_docx_batch_to_pdf)
+
+    with TestClient(app) as client:
+        result = run_batch_workflow(
+            base_url="http://testserver",
+            template_path=sample_template_path,
+            good_example_paths=[],
+            bad_example_paths=[],
+            message="Set Project Overview to Batch PDF export scope.",
+            languages=["Spanish"],
+            output_file_name="batch-pdf-export-spec",
+            export_format="pdf",
+            client=client,
+        )
+
+        export_payload = result["export"]
+        assert export_payload["export_format"] == "pdf"
+        assert export_payload["generated_documents"][0]["format"] == "pdf"
+        assert export_payload["generated_documents"][0]["file_name"] == "batch-pdf-export-spec.spanish.pdf"
+
+        list_response = client.get(f"/export/{result['ingest']['session_id']}/files")
+        list_response.raise_for_status()
+        listed_files = list_response.json()
+        assert listed_files[0]["format"] == "pdf"
+        assert listed_files[0]["file_name"] == "batch-pdf-export-spec.spanish.pdf"
+
+    generated_path = Path(export_payload["generated_files"][0])
+    assert generated_path.exists()
+    assert generated_path.suffix.lower() == ".pdf"
+
+    with zipfile.ZipFile(Path(export_payload["archive_path"])) as archive:
+        assert "batch-pdf-export-spec.spanish.pdf" in set(archive.namelist())
+
+
+def test_export_api_returns_clear_error_when_pdf_converter_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    sample_template_path: Path,
+    isolated_storage: Path,
+) -> None:
+    monkeypatch.setattr(rag_service, "index_examples", lambda *args, **kwargs: [])
+
+    async def fake_generate_json(*, system_prompt: str, user_prompt: str, temperature: float = 0.2, mcp_servers=None):
+        if '"assistant_message"' in user_prompt:
+            return {
+                "assistant_message": "Captured the scope.",
+                "summary": "Draft ready.",
+                "section_updates": [
+                    {
+                        "section_id": "section-1",
+                        "title": "Project Overview",
+                        "content": "PDF export error scope.",
+                        "status": "complete",
+                    }
+                ],
+            }
+        raise AssertionError(f"Unexpected prompt: {system_prompt}")
+
+    async def fake_translate_sections(*, session, language: str, good_examples):
+        assert language == "Spanish"
+        return {
+            "section-1::title": "Resumen del proyecto",
+            "section-1::content": "Alcance de error de exportacion PDF.",
+            "section-1": "Alcance de error de exportacion PDF.",
+        }
+
+    monkeypatch.setattr(llm_provider, "generate_json", fake_generate_json)
+    monkeypatch.setattr(translation_service, "translate_sections", fake_translate_sections)
+    monkeypatch.setattr(translation_service, "_find_soffice", lambda: None)
+
+    with TestClient(app) as client:
+        with sample_template_path.open("rb") as template_handle:
+            ingest_response = client.post(
+                "/ingest",
+                files={
+                    "template": (
+                        sample_template_path.name,
+                        template_handle.read(),
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    )
+                },
+            )
+        ingest_response.raise_for_status()
+        session_id = ingest_response.json()["session_id"]
+
+        chat_response = client.post(
+            "/chat",
+            json={"session_id": session_id, "message": "Set Project Overview to PDF export error scope."},
+        )
+        chat_response.raise_for_status()
+
+        export_response = client.post(
+            "/export",
+            json={
+                "session_id": session_id,
+                "target_languages": ["Spanish"],
+                "output_file_name": "pdf-export-error-spec",
+                "export_format": "pdf",
+            },
+        )
+
+    assert export_response.status_code == 400
+    assert "PDF export requires LibreOffice headless" in export_response.json()["detail"]
+
+
 def test_translation_configuration_endpoint_reports_active_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(translation_service.settings, "translation_provider", "google")
     monkeypatch.setattr(translation_service.settings, "google_translate_api_key", "fake-key")

@@ -52,7 +52,7 @@ export function ScenarioControls({
             {title ?? (mode === "load-only" ? "Load an existing scenario" : mode === "save-only" ? "Save the current scenario" : "Load or save a named scenario")}
           </h2>
           <p className="mt-2 text-sm leading-6 text-steel">
-            {description ?? "A scenario stores the template, enhancement document, examples, current prompt, draft document, and export language configuration under the root scenarios folder."}
+            {description ?? "A scenario stores the template, enhancement document, examples, the summarized interview prompt, the draft document, and export language configuration under the root scenarios folder."}
           </p>
         </div>
       )}

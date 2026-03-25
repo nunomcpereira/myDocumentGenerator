@@ -42,6 +42,60 @@ export function RefinementScreen({ snapshot, mcpCatalog, onSelectedMcpServersCha
     setLlmAvailable(true);
   }, [snapshot.sessionId]);
 
+  useEffect(() => {
+    if (!snapshot.sessionId || !snapshot.autoApplyPromptOnRefine || !snapshot.prompt.trim()) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function autoApplyPrompt() {
+      setBusy(true);
+      setMessages((current) => [...current, { role: "user", content: snapshot.prompt }]);
+      try {
+        const response = await sendChatMessage(snapshot.sessionId!, snapshot.prompt, snapshot.mcpServers);
+        if (cancelled) {
+          return;
+        }
+        setMessages((current) => [...current, { role: "assistant", content: response.assistant_message }]);
+        setLlmAvailable(response.llm_available);
+        startTransition(() => {
+          onUpdated({
+            ...snapshot,
+            prompt: response.prompt ?? snapshot.prompt,
+            autoApplyPromptOnRefine: false,
+            draftState: response.draft_state,
+            previewMarkdown: response.preview_markdown,
+            warnings: response.warnings,
+          });
+        });
+      } catch (caught) {
+        if (cancelled) {
+          return;
+        }
+        const error = caught instanceof Error ? caught.message : "Chat request failed.";
+        setMessages((current) => [...current, { role: "system", content: error }]);
+        setLlmAvailable(false);
+        startTransition(() => {
+          onUpdated({
+            ...snapshot,
+            autoApplyPromptOnRefine: false,
+          });
+        });
+      } finally {
+        if (!cancelled) {
+          setBusy(false);
+        }
+      }
+    }
+
+    void autoApplyPrompt();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [onUpdated, snapshot]);
+
   async function handleSend(message: string) {
     setBusy(true);
     setMessages((current) => [...current, { role: "user", content: message }]);
@@ -52,7 +106,8 @@ export function RefinementScreen({ snapshot, mcpCatalog, onSelectedMcpServersCha
       startTransition(() => {
         onUpdated({
           ...snapshot,
-          prompt: message,
+          prompt: response.prompt ?? snapshot.prompt,
+          autoApplyPromptOnRefine: false,
           draftState: response.draft_state,
           previewMarkdown: response.preview_markdown,
           warnings: response.warnings,
@@ -111,7 +166,15 @@ export function RefinementScreen({ snapshot, mcpCatalog, onSelectedMcpServersCha
       </section>
 
       <div className="grid min-h-[58vh] gap-6 xl:grid-cols-[0.88fr_1.12fr]">
-        <ChatPanel messages={messages} busy={busy} llmAvailable={llmAvailable} onSend={handleSend} />
+        <ChatPanel
+          messages={messages}
+          busy={busy}
+          llmAvailable={llmAvailable}
+          promptSummary={snapshot.prompt}
+          onPromptSummaryChange={(prompt) => onUpdated({ ...snapshot, prompt, autoApplyPromptOnRefine: false })}
+          onApplyPromptSummary={handleSend}
+          onSend={handleSend}
+        />
         <MarkdownPreview value={deferredPreviewMarkdown} mode={previewMode} onModeChange={setPreviewMode} />
       </div>
     </div>

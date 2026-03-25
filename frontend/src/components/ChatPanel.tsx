@@ -1,5 +1,5 @@
-import { LoaderCircle, SendHorizontal, TriangleAlert } from "lucide-react";
-import { memo, useState } from "react";
+import { LoaderCircle, Pencil, SendHorizontal, TriangleAlert } from "lucide-react";
+import { memo, useEffect, useState } from "react";
 
 import type { ChatMessage } from "../lib/types";
 
@@ -7,11 +7,28 @@ type ChatPanelProps = {
   messages: ChatMessage[];
   busy: boolean;
   llmAvailable: boolean;
+  promptSummary: string;
+  onPromptSummaryChange: (value: string) => void;
+  onApplyPromptSummary: (value: string) => Promise<void>;
   onSend: (message: string) => Promise<void>;
 };
 
-export const ChatPanel = memo(function ChatPanel({ messages, busy, llmAvailable, onSend }: ChatPanelProps) {
+export const ChatPanel = memo(function ChatPanel({
+  messages,
+  busy,
+  llmAvailable,
+  promptSummary,
+  onPromptSummaryChange,
+  onApplyPromptSummary,
+  onSend,
+}: ChatPanelProps) {
   const [draft, setDraft] = useState("");
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [summaryDraft, setSummaryDraft] = useState(promptSummary);
+
+  useEffect(() => {
+    setSummaryDraft(promptSummary);
+  }, [promptSummary]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -21,6 +38,16 @@ export const ChatPanel = memo(function ChatPanel({ messages, busy, llmAvailable,
     }
     setDraft("");
     await onSend(next);
+  }
+
+  async function handleApplySummary() {
+    const nextSummary = summaryDraft.trim();
+    onPromptSummaryChange(nextSummary);
+    if (!nextSummary || busy) {
+      return;
+    }
+    await onApplyPromptSummary(nextSummary);
+    setSummaryOpen(false);
   }
 
   return (
@@ -33,13 +60,68 @@ export const ChatPanel = memo(function ChatPanel({ messages, busy, llmAvailable,
             Use this space to provide the instructions the analyst should follow while filling out the specification template.
           </p>
         </div>
-        {!llmAvailable ? (
-          <div className="flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-sm text-amber-700">
-            <TriangleAlert className="h-4 w-4" />
-            <span>LLM offline</span>
-          </div>
-        ) : null}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setSummaryOpen((current) => !current)}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-stone-300 bg-white text-steel transition hover:border-ember hover:text-ink"
+            aria-label={summaryOpen ? "Hide summarized prompt" : "Show summarized prompt"}
+            title="Check or edit the saved summarized prompt"
+          >
+            <Pencil className="h-4 w-4" />
+          </button>
+          {!llmAvailable ? (
+            <div className="flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-sm text-amber-700">
+              <TriangleAlert className="h-4 w-4" />
+              <span>LLM offline</span>
+            </div>
+          ) : null}
+        </div>
       </div>
+
+      {summaryOpen ? (
+        <div className="mb-4 rounded-[1.5rem] border border-stone-200 bg-[#fff8ee] p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.24em] text-steel">Summarized prompt</p>
+              <p className="mt-1 text-sm leading-6 text-steel">
+                This saved summary is built from the user inputs and can be replayed to repopulate the draft after loading a scenario.
+              </p>
+            </div>
+          </div>
+          <textarea
+            value={summaryDraft}
+            onChange={(event) => {
+              const nextValue = event.target.value;
+              setSummaryDraft(nextValue);
+              onPromptSummaryChange(nextValue);
+            }}
+            rows={6}
+            placeholder="The summarized prompt will appear here after the analyst processes your inputs. You can edit it before saving or reapplying it."
+            className="mt-3 min-h-[9rem] w-full resize-y rounded-[1.25rem] border border-stone-200 bg-white px-4 py-3 text-sm leading-6 outline-none transition focus:border-ember"
+          />
+          <div className="mt-3 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setSummaryDraft(promptSummary);
+                setSummaryOpen(false);
+              }}
+              className="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-steel transition hover:border-stone-400 hover:text-ink"
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleApplySummary()}
+              disabled={busy || !summaryDraft.trim()}
+              className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-sand transition hover:bg-[#1e2230] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Apply summary
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="flex-1 space-y-3 overflow-y-auto pr-2">
         {messages.map((message, index) => (

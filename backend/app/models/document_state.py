@@ -103,6 +103,7 @@ class ChatSectionOperation(BaseModel):
 class ChatResult(BaseModel):
     assistant_message: str
     summary: str | None = None
+    prompt_summary: str | None = None
     section_updates: list[ChatSectionUpdate] = Field(default_factory=list)
     section_operations: list[ChatSectionOperation] = Field(default_factory=list)
 
@@ -112,6 +113,7 @@ class ChatResponse(BaseModel):
     assistant_message: str
     draft_state: DocumentDraftState
     preview_markdown: str
+    prompt: str | None = None
     next_required_sections: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     llm_available: bool = True
@@ -121,11 +123,13 @@ class ExportRequest(BaseModel):
     session_id: str
     target_languages: list[str]
     output_file_name: str | None = None
+    export_format: Literal["docx", "pdf"] = "docx"
     mcp_servers: list[str] | None = None
 
 
 class GeneratedExportFile(BaseModel):
     language: str
+    format: Literal["docx", "pdf"] = "docx"
     file_name: str
     download_path: str
 
@@ -135,6 +139,7 @@ class ExportResponse(BaseModel):
     archive_path: str
     generated_files: list[str]
     generated_documents: list[GeneratedExportFile] = Field(default_factory=list)
+    export_format: Literal["docx", "pdf"] = "docx"
     output_file_name: str | None = None
     warnings: list[str] = Field(default_factory=list)
 

@@ -17,6 +17,7 @@ def run_batch_workflow(
     message: str,
     languages: list[str],
     output_file_name: str | None = None,
+    export_format: str = "docx",
     client: Any | None = None,
 ) -> dict[str, Any]:
     owns_client = client is None
@@ -44,6 +45,7 @@ def run_batch_workflow(
                 "session_id": session_id,
                 "target_languages": languages,
                 "output_file_name": output_file_name,
+                "export_format": export_format,
             },
         )
         export_response.raise_for_status()
@@ -117,6 +119,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--message", required=True)
     parser.add_argument("--language", action="append", default=["Spanish", "French"])
     parser.add_argument("--output-file-name")
+    parser.add_argument("--export-format", choices=["docx", "pdf"], default="docx")
     return parser.parse_args()
 
 
@@ -130,6 +133,7 @@ def main() -> None:
         message=args.message,
         languages=args.language,
         output_file_name=args.output_file_name,
+        export_format=args.export_format,
     )
     print(json.dumps(result, indent=2))
 

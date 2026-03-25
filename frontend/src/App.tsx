@@ -16,8 +16,10 @@ const initialSnapshot: SessionSnapshot = {
   sessionId: null,
   scenarioId: "",
   prompt: "",
+  autoApplyPromptOnRefine: false,
   mcpServers: [],
   exportLanguages: ["English", "Spanish", "French"],
+  exportFormat: "docx",
   outputFileName: "localized-specification",
   loadedFiles: [],
   previewMarkdown: "",
@@ -63,6 +65,8 @@ function ExportRoute({ snapshot, onSnapshotChange }: { snapshot: SessionSnapshot
       snapshot={snapshot}
       selectedLanguages={snapshot.exportLanguages}
       onLanguagesChange={(languages) => onSnapshotChange({ ...snapshot, exportLanguages: languages })}
+      exportFormat={snapshot.exportFormat}
+      onExportFormatChange={(exportFormat) => onSnapshotChange({ ...snapshot, exportFormat })}
       outputFileName={snapshot.outputFileName}
       onOutputFileNameChange={(outputFileName) => onSnapshotChange({ ...snapshot, outputFileName })}
     />
@@ -88,10 +92,12 @@ export default function App() {
         ...parsed,
         scenarioId: parsed.scenarioId ?? "",
         prompt: parsed.prompt ?? "",
+        autoApplyPromptOnRefine: parsed.autoApplyPromptOnRefine ?? false,
         mcpServers: Array.isArray(parsed.mcpServers) ? parsed.mcpServers : [],
         exportLanguages: Array.isArray(parsed.exportLanguages) && parsed.exportLanguages.length > 0
           ? parsed.exportLanguages
           : initialSnapshot.exportLanguages,
+        exportFormat: parsed.exportFormat === "pdf" ? "pdf" : "docx",
         outputFileName: parsed.outputFileName ?? initialSnapshot.outputFileName,
         loadedFiles: Array.isArray(parsed.loadedFiles) ? parsed.loadedFiles : [],
         previewMarkdown: parsed.previewMarkdown ?? "",
@@ -235,8 +241,10 @@ export default function App() {
         sessionId: response.session_id,
         scenarioId: response.scenario_id,
         prompt: response.prompt ?? "",
+        autoApplyPromptOnRefine: Boolean(response.prompt?.trim()),
         mcpServers: response.mcp_servers ?? [],
         exportLanguages: response.target_languages.length > 0 ? response.target_languages : initialSnapshot.exportLanguages,
+        exportFormat: snapshot.exportFormat,
         outputFileName: response.output_file_name ?? initialSnapshot.outputFileName,
         loadedFiles: response.loaded_files,
         template: response.template,
@@ -269,6 +277,7 @@ export default function App() {
         ...current,
         scenarioId: response.scenario_id,
         prompt: response.prompt ?? current.prompt,
+        autoApplyPromptOnRefine: false,
         mcpServers: response.mcp_servers,
         exportLanguages: response.target_languages,
         outputFileName: response.output_file_name ?? current.outputFileName,
