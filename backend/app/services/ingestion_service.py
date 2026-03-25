@@ -9,6 +9,11 @@ from uuid import uuid4
 from fastapi import UploadFile
 from pypdf import PdfReader
 
+try:
+    import pdfplumber as _pdfplumber
+except ImportError:
+    _pdfplumber = None
+
 from app.core.config import get_settings
 from app.core.errors import UnsupportedTemplateError
 from app.models.document_state import DraftSectionState, DocumentDraftState, SessionContext, TemplateSection, TemplateStructure
@@ -129,11 +134,11 @@ class IngestionService:
         template_structure: TemplateStructure,
         enhancement_document_path: Path | None,
     ) -> tuple[list[Path], dict[str, list[Path]], list[str]]:
-        if DocxDocument is None:
-            return [], {}, []
-
         source_path = enhancement_document_path or template_path
-        if source_path.suffix.lower() != ".docx":
+        suffix = source_path.suffix.lower()
+        if suffix == ".docx" and DocxDocument is None:
+            return [], {}, []
+        if suffix not in {".docx", ".pdf"}:
             return [], {}, []
 
         image_output_dir = self.settings.upload_root / session_id / "preview_images"
@@ -208,6 +213,9 @@ class IngestionService:
     def _extract_existing_sections(self, file_path: Path, image_output_dir: Path | None = None) -> list[ImportedSection]:
         suffix = file_path.suffix.lower()
         if suffix == ".docx" and DocxDocument is not None:
+            from docx.text.paragraph import Paragraph as _DocxParagraph
+            from docx.table import Table as _DocxTable
+
             document = DocxDocument(str(file_path))
             sections: list[ImportedSection] = []
             current_title: str | None = None
@@ -225,7 +233,21 @@ class IngestionService:
                         )
                     )
 
-            for paragraph in document.paragraphs:
+            for child in document.element.body:
+                local_tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+
+                if local_tag == "tbl":
+                    table_md = self._docx_table_to_markdown(_DocxTable(child, document))
+                    if table_md:
+                        if current_title is None:
+                            current_title = "Imported content"
+                        current_lines.append(table_md)
+                    continue
+
+                if local_tag != "p":
+                    continue
+
+                paragraph = _DocxParagraph(child, document)
                 text = paragraph.text.strip()
                 style_name = paragraph.style.name.lower() if paragraph.style and paragraph.style.name else ""
                 paragraph_images, image_index = self._extract_docx_paragraph_images(
@@ -255,7 +277,7 @@ class IngestionService:
             flush_current_section()
             return sections
         if suffix == ".pdf":
-            return self._extract_pdf_sections(file_path)
+            return self._extract_pdf_sections(file_path, image_output_dir=image_output_dir)
         return []
 
     def _build_section_image_mapping(
@@ -417,12 +439,19 @@ class IngestionService:
             extracted_outline=outline,
         )
 
-    def _extract_pdf_sections(self, file_path: Path) -> list[ImportedSection]:
+    def _extract_pdf_sections(self, file_path: Path, image_output_dir: Path | None = None) -> list[ImportedSection]:
         reader = PdfReader(str(file_path))
         page_texts = [(page.extract_text() or "") for page in reader.pages]
+        if _pdfplumber is not None:
+            page_texts = self._enhance_pdf_page_texts_with_tables(file_path, page_texts)
         known_headings = self._extract_pdf_outline_candidates(page_texts)
         body_page_texts = [page_text for page_text in page_texts if not self._is_pdf_table_of_contents_page(page_text)]
-        return self._split_pdf_text_into_sections(body_page_texts or page_texts, known_headings=known_headings)
+        sections = self._split_pdf_text_into_sections(body_page_texts or page_texts, known_headings=known_headings)
+        if image_output_dir is not None and sections:
+            image_paths = self._extract_pdf_page_images(reader, image_output_dir)
+            if image_paths:
+                sections[0].image_paths.extend(image_paths)
+        return sections
 
     def _split_pdf_text_into_sections(self, page_texts: list[str], *, known_headings: list[str] | None = None) -> list[ImportedSection]:
         sections: list[ImportedSection] = []
@@ -571,6 +600,76 @@ class IngestionService:
             return True
 
         return False
+
+    @staticmethod
+    def _docx_table_to_markdown(table) -> str:
+        """Convert a python-docx Table object to a GitHub-flavored markdown table string."""
+        try:
+            if not table.rows:
+                return ""
+            rows_md: list[str] = []
+            for row in table.rows:
+                cells = [" ".join(cell.text.split()).replace("|", "\\|") for cell in row.cells]
+                rows_md.append("| " + " | ".join(cells) + " |")
+            if not rows_md:
+                return ""
+            col_count = len(table.rows[0].cells)
+            separator = "| " + " | ".join(["---"] * col_count) + " |"
+            return "\n".join([rows_md[0], separator] + rows_md[1:])
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _enhance_pdf_page_texts_with_tables(file_path: Path, page_texts: list[str]) -> list[str]:
+        """Append markdown table representations to page text where pdfplumber detects tables."""
+        if _pdfplumber is None:
+            return page_texts
+        enhanced = list(page_texts)
+        try:
+            with _pdfplumber.open(str(file_path)) as pdf:
+                for page_idx, page in enumerate(pdf.pages):
+                    if page_idx >= len(enhanced):
+                        break
+                    tables = page.extract_tables()
+                    if not tables:
+                        continue
+                    table_markdowns: list[str] = []
+                    for table_data in tables:
+                        if not table_data:
+                            continue
+                        rows_md: list[str] = []
+                        for row in table_data:
+                            cells = [str(cell or "").strip().replace("\n", " ").replace("|", "\\|") for cell in row]
+                            rows_md.append("| " + " | ".join(cells) + " |")
+                        if rows_md:
+                            col_count = len(table_data[0]) if table_data else 0
+                            separator = "| " + " | ".join(["---"] * col_count) + " |"
+                            table_markdowns.append("\n".join([rows_md[0], separator] + rows_md[1:]))
+                    if table_markdowns:
+                        enhanced[page_idx] = enhanced[page_idx] + "\n\n" + "\n\n".join(table_markdowns)
+        except Exception:
+            pass
+        return enhanced
+
+    @staticmethod
+    def _extract_pdf_page_images(reader, image_output_dir: Path) -> list[Path]:
+        """Extract all embedded images from a pypdf PdfReader and save them to disk."""
+        image_output_dir.mkdir(parents=True, exist_ok=True)
+        image_paths: list[Path] = []
+        image_index = 0
+        for page in reader.pages:
+            try:
+                for img in page.images:
+                    image_index += 1
+                    suffix = Path(img.name).suffix if img.name else ".png"
+                    if not suffix:
+                        suffix = ".png"
+                    image_path = image_output_dir / f"pdf-image-{image_index}{suffix}"
+                    image_path.write_bytes(img.data)
+                    image_paths.append(image_path)
+            except Exception:
+                continue
+        return image_paths
 
     def _infer_pdf_heading_level(self, title: str) -> int:
         match = PDF_NUMBERED_HEADING_PATTERN.match(title)
