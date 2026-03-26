@@ -12,7 +12,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     ca-certificates \
-    libreoffice \
     tar \
     && rm -rf /var/lib/apt/lists/*
 

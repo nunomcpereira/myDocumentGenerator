@@ -44,6 +44,12 @@ body.theme-dark {
   transform: translateZ(0);
 }
 
+.export-panel-surface {
+  contain: layout style;
+  transform: none;
+  backface-visibility: hidden;
+}
+
 .selection-chip {
   box-shadow: 0 10px 24px rgba(17, 19, 26, 0.06);
 }

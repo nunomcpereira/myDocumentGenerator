@@ -16,6 +16,7 @@ const initialSnapshot: SessionSnapshot = {
   sessionId: null,
   scenarioId: "",
   prompt: "",
+  promptSequence: [],
   autoApplyPromptOnRefine: false,
   mcpServers: [],
   exportLanguages: ["English", "Spanish", "French"],
@@ -87,11 +88,15 @@ export default function App() {
     }
     try {
       const parsed = JSON.parse(raw) as Partial<SessionSnapshot>;
+      const parsedPromptSequence = Array.isArray(parsed.promptSequence)
+        ? parsed.promptSequence.filter((item): item is string => typeof item === "string")
+        : [];
       return {
         ...initialSnapshot,
         ...parsed,
         scenarioId: parsed.scenarioId ?? "",
         prompt: parsed.prompt ?? "",
+        promptSequence: parsedPromptSequence.length > 0 ? parsedPromptSequence : (parsed.prompt?.trim() ? [parsed.prompt.trim()] : []),
         autoApplyPromptOnRefine: parsed.autoApplyPromptOnRefine ?? false,
         mcpServers: Array.isArray(parsed.mcpServers) ? parsed.mcpServers : [],
         exportLanguages: Array.isArray(parsed.exportLanguages) && parsed.exportLanguages.length > 0
@@ -241,7 +246,8 @@ export default function App() {
         sessionId: response.session_id,
         scenarioId: response.scenario_id,
         prompt: response.prompt ?? "",
-        autoApplyPromptOnRefine: Boolean(response.prompt?.trim()),
+        promptSequence: response.prompt_sequence ?? [],
+        autoApplyPromptOnRefine: (response.prompt_sequence?.length ?? 0) > 0,
         mcpServers: response.mcp_servers ?? [],
         exportLanguages: response.target_languages.length > 0 ? response.target_languages : initialSnapshot.exportLanguages,
         exportFormat: snapshot.exportFormat,
@@ -269,6 +275,7 @@ export default function App() {
         sessionId: snapshot.sessionId,
         scenarioId: snapshot.scenarioId,
         prompt: snapshot.prompt,
+        promptSequence: snapshot.promptSequence,
         mcpServers: snapshot.mcpServers,
         targetLanguages: snapshot.exportLanguages,
         outputFileName: snapshot.outputFileName,
@@ -277,6 +284,7 @@ export default function App() {
         ...current,
         scenarioId: response.scenario_id,
         prompt: response.prompt ?? current.prompt,
+        promptSequence: response.prompt_sequence ?? current.promptSequence,
         autoApplyPromptOnRefine: false,
         mcpServers: response.mcp_servers,
         exportLanguages: response.target_languages,

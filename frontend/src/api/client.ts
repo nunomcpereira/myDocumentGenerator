@@ -77,13 +77,13 @@ export async function ingestDocuments(params: {
   return handleResponse<IngestResponse>(response);
 }
 
-export async function sendChatMessage(sessionId: string, message: string, mcpServers: string[]): Promise<ChatResponse> {
+export async function sendChatMessage(sessionId: string, message: string, mcpServers: string[], persistPrompt = true): Promise<ChatResponse> {
   return requestJson<ChatResponse>(`${API_BASE_URL}/chat`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ session_id: sessionId, message, mcp_servers: mcpServers }),
+    body: JSON.stringify({ session_id: sessionId, message, mcp_servers: mcpServers, persist_prompt: persistPrompt }),
   });
 }
 
@@ -119,6 +119,7 @@ export async function saveScenario(params: {
   sessionId: string;
   scenarioId: string;
   prompt: string;
+  promptSequence: string[];
   mcpServers: string[];
   targetLanguages: string[];
   outputFileName: string;
@@ -132,6 +133,7 @@ export async function saveScenario(params: {
       session_id: params.sessionId,
       scenario_id: params.scenarioId,
       prompt: params.prompt,
+      prompt_sequence: params.promptSequence,
       mcp_servers: params.mcpServers,
       target_languages: params.targetLanguages,
       output_file_name: params.outputFileName,

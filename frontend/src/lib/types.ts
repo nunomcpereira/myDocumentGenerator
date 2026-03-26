@@ -51,6 +51,7 @@ export type ChatResponse = {
   draft_state: DocumentDraftState;
   preview_markdown: string;
   prompt?: string | null;
+  prompt_sequence: string[];
   next_required_sections: string[];
   warnings: string[];
   llm_available: boolean;
@@ -105,6 +106,7 @@ export type ScenarioSummary = {
   scenario_id: string;
   template_file_name?: string | null;
   prompt?: string | null;
+  prompt_sequence: string[];
   mcp_servers: string[];
   target_languages: string[];
   output_file_name?: string | null;
@@ -115,6 +117,7 @@ export type SaveScenarioResponse = {
   scenario_id: string;
   session_id: string;
   prompt?: string | null;
+  prompt_sequence: string[];
   mcp_servers: string[];
   target_languages: string[];
   output_file_name?: string | null;
@@ -129,6 +132,7 @@ export type LoadScenarioResponse = {
   preview_markdown: string;
   warnings: string[];
   prompt?: string | null;
+  prompt_sequence: string[];
   mcp_servers: string[];
   target_languages: string[];
   loaded_files: LoadedFileReference[];
@@ -154,6 +158,7 @@ export type SessionSnapshot = {
   sessionId: string | null;
   scenarioId: string;
   prompt: string;
+  promptSequence: string[];
   autoApplyPromptOnRefine: boolean;
   mcpServers: string[];
   exportLanguages: string[];

@@ -1082,17 +1082,8 @@ def test_export_api_accepts_pdf_format_and_returns_pdf_artifacts(
             "section-1": "Alcance de exportacion PDF.",
         }
 
-    def fake_convert_docx_batch_to_pdf(docx_files: list[Path], output_directory: Path) -> list[Path]:
-        generated_pdfs: list[Path] = []
-        for docx_file in docx_files:
-            pdf_path = output_directory / f"{docx_file.stem}.pdf"
-            pdf_path.write_bytes(b"%PDF-1.4\n% fake pdf for test\n")
-            generated_pdfs.append(pdf_path)
-        return generated_pdfs
-
     monkeypatch.setattr(llm_provider, "generate_json", fake_generate_json)
     monkeypatch.setattr(translation_service, "translate_sections", fake_translate_sections)
-    monkeypatch.setattr(translation_service, "_convert_docx_batch_to_pdf", fake_convert_docx_batch_to_pdf)
 
     with TestClient(app) as client:
         with sample_template_path.open("rb") as template_handle:
@@ -1148,6 +1139,7 @@ def test_export_api_accepts_pdf_format_and_returns_pdf_artifacts(
     generated_path = Path(export_payload["generated_files"][0])
     assert generated_path.suffix.lower() == ".pdf"
     assert generated_path.exists()
+    assert generated_path.read_bytes().startswith(b"%PDF")
 
     with zipfile.ZipFile(Path(export_payload["archive_path"])) as archive:
         archive_names = set(archive.namelist())
@@ -1185,17 +1177,8 @@ def test_run_batch_workflow_forwards_pdf_export_format(
             "section-1": "Alcance de exportacion PDF por batch.",
         }
 
-    def fake_convert_docx_batch_to_pdf(docx_files: list[Path], output_directory: Path) -> list[Path]:
-        generated_pdfs: list[Path] = []
-        for docx_file in docx_files:
-            pdf_path = output_directory / f"{docx_file.stem}.pdf"
-            pdf_path.write_bytes(b"%PDF-1.4\n% fake batch pdf for test\n")
-            generated_pdfs.append(pdf_path)
-        return generated_pdfs
-
     monkeypatch.setattr(llm_provider, "generate_json", fake_generate_json)
     monkeypatch.setattr(translation_service, "translate_sections", fake_translate_sections)
-    monkeypatch.setattr(translation_service, "_convert_docx_batch_to_pdf", fake_convert_docx_batch_to_pdf)
 
     with TestClient(app) as client:
         result = run_batch_workflow(
@@ -1224,12 +1207,13 @@ def test_run_batch_workflow_forwards_pdf_export_format(
     generated_path = Path(export_payload["generated_files"][0])
     assert generated_path.exists()
     assert generated_path.suffix.lower() == ".pdf"
+    assert generated_path.read_bytes().startswith(b"%PDF")
 
     with zipfile.ZipFile(Path(export_payload["archive_path"])) as archive:
         assert "batch-pdf-export-spec.spanish.pdf" in set(archive.namelist())
 
 
-def test_export_api_returns_clear_error_when_pdf_converter_is_unavailable(
+def test_export_api_returns_clear_error_when_pdf_renderer_is_unavailable(
     monkeypatch: pytest.MonkeyPatch,
     sample_template_path: Path,
     isolated_storage: Path,
@@ -1262,7 +1246,7 @@ def test_export_api_returns_clear_error_when_pdf_converter_is_unavailable(
 
     monkeypatch.setattr(llm_provider, "generate_json", fake_generate_json)
     monkeypatch.setattr(translation_service, "translate_sections", fake_translate_sections)
-    monkeypatch.setattr(translation_service, "_find_soffice", lambda: None)
+    monkeypatch.setattr("app.services.translation_service.SimpleDocTemplate", None)
 
     with TestClient(app) as client:
         with sample_template_path.open("rb") as template_handle:
@@ -1296,7 +1280,7 @@ def test_export_api_returns_clear_error_when_pdf_converter_is_unavailable(
         )
 
     assert export_response.status_code == 400
-    assert "PDF export requires LibreOffice headless" in export_response.json()["detail"]
+    assert "PDF export requires ReportLab" in export_response.json()["detail"]
 
 
 def test_translation_configuration_endpoint_reports_active_provider(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -27,6 +27,10 @@ export function RefinementScreen({ snapshot, mcpCatalog, onSelectedMcpServersCha
   const [previewMode, setPreviewMode] = useState<"html" | "markdown">("html");
   const deferredPreviewMarkdown = useDeferredValue(snapshot.previewMarkdown);
 
+  function formatPromptSequence(promptSequence: string[]) {
+    return promptSequence.filter((item) => item.trim()).join("\n\n");
+  }
+
   if (!snapshot.sessionId) {
     return <Navigate to="/" replace />;
   }
@@ -43,58 +47,81 @@ export function RefinementScreen({ snapshot, mcpCatalog, onSelectedMcpServersCha
   }, [snapshot.sessionId]);
 
   useEffect(() => {
-    if (!snapshot.sessionId || !snapshot.autoApplyPromptOnRefine || !snapshot.prompt.trim()) {
+    if (!snapshot.sessionId || !snapshot.autoApplyPromptOnRefine || snapshot.promptSequence.length === 0) {
       return;
     }
 
     let cancelled = false;
 
-    async function autoApplyPrompt() {
-      setBusy(true);
-      setMessages((current) => [...current, { role: "user", content: snapshot.prompt }]);
-      try {
-        const response = await sendChatMessage(snapshot.sessionId!, snapshot.prompt, snapshot.mcpServers);
-        if (cancelled) {
-          return;
-        }
-        setMessages((current) => [...current, { role: "assistant", content: response.assistant_message }]);
-        setLlmAvailable(response.llm_available);
-        startTransition(() => {
-          onUpdated({
-            ...snapshot,
-            prompt: response.prompt ?? snapshot.prompt,
-            autoApplyPromptOnRefine: false,
-            draftState: response.draft_state,
-            previewMarkdown: response.preview_markdown,
-            warnings: response.warnings,
-          });
-        });
-      } catch (caught) {
-        if (cancelled) {
-          return;
-        }
-        const error = caught instanceof Error ? caught.message : "Chat request failed.";
-        setMessages((current) => [...current, { role: "system", content: error }]);
-        setLlmAvailable(false);
-        startTransition(() => {
-          onUpdated({
-            ...snapshot,
-            autoApplyPromptOnRefine: false,
-          });
-        });
-      } finally {
-        if (!cancelled) {
-          setBusy(false);
-        }
-      }
-    }
-
-    void autoApplyPrompt();
+    void handleReplayPromptSequence(snapshot.promptSequence, cancelled);
 
     return () => {
       cancelled = true;
     };
   }, [onUpdated, snapshot]);
+
+  async function handleReplayPromptSequence(promptSequence: string[], cancelled = false) {
+    const prompts = promptSequence.map((item) => item.trim()).filter(Boolean);
+    if (prompts.length === 0) {
+      startTransition(() => {
+        onUpdated({
+          ...snapshot,
+          prompt: "",
+          promptSequence: [],
+          autoApplyPromptOnRefine: false,
+        });
+      });
+      return;
+    }
+
+    setBusy(true);
+    let nextSnapshot = {
+      ...snapshot,
+      prompt: formatPromptSequence(prompts),
+      promptSequence: prompts,
+      autoApplyPromptOnRefine: false,
+    };
+
+    try {
+      for (const prompt of prompts) {
+        if (cancelled) {
+          return;
+        }
+        setMessages((current) => [...current, { role: "user", content: prompt }]);
+        const response = await sendChatMessage(snapshot.sessionId!, prompt, snapshot.mcpServers, false);
+        if (cancelled) {
+          return;
+        }
+        setMessages((current) => [...current, { role: "assistant", content: response.assistant_message }]);
+        setLlmAvailable(response.llm_available);
+        nextSnapshot = {
+          ...nextSnapshot,
+          prompt: response.prompt ?? nextSnapshot.prompt,
+          promptSequence: response.prompt_sequence.length > 0 ? response.prompt_sequence : prompts,
+          draftState: response.draft_state,
+          previewMarkdown: response.preview_markdown,
+          warnings: response.warnings,
+        };
+        startTransition(() => {
+          onUpdated(nextSnapshot);
+        });
+      }
+    } catch (caught) {
+      if (cancelled) {
+        return;
+      }
+      const error = caught instanceof Error ? caught.message : "Chat request failed.";
+      setMessages((current) => [...current, { role: "system", content: error }]);
+      setLlmAvailable(false);
+      startTransition(() => {
+        onUpdated(nextSnapshot);
+      });
+    } finally {
+      if (!cancelled) {
+        setBusy(false);
+      }
+    }
+  }
 
   async function handleSend(message: string) {
     setBusy(true);
@@ -107,6 +134,7 @@ export function RefinementScreen({ snapshot, mcpCatalog, onSelectedMcpServersCha
         onUpdated({
           ...snapshot,
           prompt: response.prompt ?? snapshot.prompt,
+          promptSequence: response.prompt_sequence,
           autoApplyPromptOnRefine: false,
           draftState: response.draft_state,
           previewMarkdown: response.preview_markdown,
@@ -170,9 +198,14 @@ export function RefinementScreen({ snapshot, mcpCatalog, onSelectedMcpServersCha
           messages={messages}
           busy={busy}
           llmAvailable={llmAvailable}
-          promptSummary={snapshot.prompt}
-          onPromptSummaryChange={(prompt) => onUpdated({ ...snapshot, prompt, autoApplyPromptOnRefine: false })}
-          onApplyPromptSummary={handleSend}
+          promptSequence={snapshot.promptSequence}
+          onPromptSequenceChange={(promptSequence) => onUpdated({
+            ...snapshot,
+            prompt: formatPromptSequence(promptSequence),
+            promptSequence,
+            autoApplyPromptOnRefine: false,
+          })}
+          onReplayPromptSequence={handleReplayPromptSequence}
           onSend={handleSend}
         />
         <MarkdownPreview value={deferredPreviewMarkdown} mode={previewMode} onModeChange={setPreviewMode} />

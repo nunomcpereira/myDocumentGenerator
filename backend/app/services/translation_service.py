@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from copy import deepcopy
 from html import unescape
 import re
-import subprocess
 import zipfile
 from pathlib import Path
 from typing import Any
+from xml.sax.saxutils import escape as xml_escape
 
 import httpx
 
@@ -21,6 +20,17 @@ try:
     from docx import Document as DocxDocument
 except ImportError:  # pragma: no cover - optional dependency path
     DocxDocument = None
+
+try:
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import inch
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+except ImportError:  # pragma: no cover - optional dependency path
+    Paragraph = None
+    ParagraphStyle = None
+    SimpleDocTemplate = None
+    Spacer = None
+    getSampleStyleSheet = None
 
 
 LANGUAGE_CODES = {
@@ -109,45 +119,37 @@ class TranslationService:
         output_file_name: str | None = None,
         export_format: str = "docx",
     ) -> tuple[Path, list[Path], list[str]]:
-        if session.template_structure.file_type != "docx":
-            raise ExportError("Export currently requires an original .docx template so layout and styling can be preserved.")
-        if DocxDocument is None:
-            raise ExportError("python-docx is not installed, so .docx export is unavailable.")
-        if export_format not in {"docx", "pdf"}:
-            raise ExportError("Unsupported export format. Use docx or pdf.")
+        self.validate_export_request(export_format)
 
         output_directory.mkdir(parents=True, exist_ok=True)
         self._clear_generated_outputs(output_directory)
-        generated_docx_files: list[Path] = []
+        generated_files: list[Path] = []
         warnings: list[str] = []
         base_name = (output_file_name or session.output_file_name or session.template_path.stem).strip() or session.template_path.stem
 
         for language, translated_sections in translations.items():
-            target_path = output_directory / f"{base_name}.{language.lower()}.docx"
-            document = DocxDocument(str(session.template_path))
-            warnings.extend(
-                self._apply_translations_and_structure(
-                    document=document,
-                    session=session,
-                    translated_sections=translated_sections,
-                    language=language,
-                )
-            )
-            document.save(str(target_path))
-            generated_docx_files.append(target_path)
-
-        generated_files = generated_docx_files
-        if export_format == "pdf":
-            generated_files = self._convert_docx_batch_to_pdf(generated_docx_files, output_directory)
-            for docx_file in generated_docx_files:
-                if docx_file.exists():
-                    docx_file.unlink()
+            sections = self._build_export_sections(session=session, translated_sections=translated_sections)
+            extension = "pdf" if export_format == "pdf" else "docx"
+            target_path = output_directory / f"{base_name}.{language.lower()}.{extension}"
+            if export_format == "pdf":
+                self._write_pdf_export(target_path=target_path, sections=sections)
+            else:
+                self._write_docx_export(target_path=target_path, sections=sections)
+            generated_files.append(target_path)
 
         archive_path = output_directory / f"{base_name}.zip"
         with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for file_path in generated_files:
                 archive.write(file_path, arcname=file_path.name)
         return archive_path, generated_files, warnings
+
+    def validate_export_request(self, export_format: str) -> None:
+        if export_format not in {"docx", "pdf"}:
+            raise ExportError("Unsupported export format. Use docx or pdf.")
+        if export_format == "docx" and DocxDocument is None:
+            raise ExportError("python-docx is not installed, so DOCX export is unavailable.")
+        if export_format == "pdf" and (SimpleDocTemplate is None or Paragraph is None or Spacer is None or getSampleStyleSheet is None or ParagraphStyle is None):
+            raise ExportError("PDF export requires ReportLab in the backend environment.")
 
     @staticmethod
     def _clear_generated_outputs(output_directory: Path) -> None:
@@ -156,54 +158,115 @@ class TranslationService:
                 if file_path.is_file():
                     file_path.unlink()
 
-    def _convert_docx_batch_to_pdf(self, docx_files: list[Path], output_directory: Path) -> list[Path]:
-        if not docx_files:
-            return []
-
-        soffice_path = self._find_soffice()
-        if soffice_path is None:
-            raise ExportError("PDF export requires LibreOffice headless. Install soffice in the backend environment to enable PDF output.")
-
-        try:
-            subprocess.run(
-                [
-                    soffice_path,
-                    "--headless",
-                    "--convert-to",
-                    "pdf",
-                    "--outdir",
-                    str(output_directory),
-                    *[str(file_path) for file_path in docx_files],
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
+    def _build_export_sections(self, *, session: SessionContext, translated_sections: dict[str, str]) -> list[dict[str, Any]]:
+        template_sections = {section.id: section for section in session.template_structure.sections}
+        export_sections: list[dict[str, Any]] = []
+        for draft_section in session.draft_state.sections:
+            template_section = template_sections.get(draft_section.section_id)
+            title = translated_sections.get(f"{draft_section.section_id}::title") or draft_section.title
+            content = translated_sections.get(f"{draft_section.section_id}::content") or translated_sections.get(draft_section.section_id) or draft_section.content
+            export_sections.append(
+                {
+                    "title": title,
+                    "content": content,
+                    "level": max(1, min((template_section.level if template_section else 1), 9)),
+                }
             )
-        except subprocess.CalledProcessError as exc:
-            detail = exc.stderr.strip() or exc.stdout.strip() or str(exc)
-            raise ExportError(f"LibreOffice PDF conversion failed: {detail}") from exc
+        return export_sections
 
-        generated_pdfs: list[Path] = []
-        for docx_file in docx_files:
-            pdf_path = output_directory / f"{docx_file.stem}.pdf"
-            if not pdf_path.exists():
-                raise ExportError(f"Expected PDF export was not created for {docx_file.name}.")
-            generated_pdfs.append(pdf_path)
-        return generated_pdfs
+    def _write_docx_export(self, *, target_path: Path, sections: list[dict[str, Any]]) -> None:
+        document = DocxDocument()
+        for section in sections:
+            document.add_heading(section["title"], level=section["level"])
+            self._append_docx_markdownish_content(document, section["content"])
+        document.save(str(target_path))
 
-    @staticmethod
-    def _find_soffice() -> str | None:
-        from shutil import which
+    def _append_docx_markdownish_content(self, document: DocxDocument, content: str) -> None:
+        blocks = [block.strip() for block in re.split(r"\n\s*\n", content or "") if block.strip()]
+        if not blocks:
+            document.add_paragraph("")
+            return
+        for block in blocks:
+            lines = [line.rstrip() for line in block.splitlines() if line.strip()]
+            if not lines:
+                continue
+            if all(line.lstrip().startswith(("- ", "* ")) for line in lines):
+                for line in lines:
+                    document.add_paragraph(line.lstrip()[2:].strip(), style="List Bullet")
+                continue
+            if all(re.match(r"\d+\.\s+", line.lstrip()) for line in lines):
+                for line in lines:
+                    document.add_paragraph(re.sub(r"^\d+\.\s+", "", line.lstrip()), style="List Number")
+                continue
+            document.add_paragraph("\n".join(lines))
 
-        for candidate in (
-            which("soffice"),
-            "/usr/bin/soffice",
-            "/usr/local/bin/soffice",
-            "/Applications/LibreOffice.app/Contents/MacOS/soffice",
-        ):
-            if candidate and Path(candidate).exists():
-                return candidate
-        return None
+    def _write_pdf_export(self, *, target_path: Path, sections: list[dict[str, Any]]) -> None:
+        stylesheet = getSampleStyleSheet()
+        body_style = stylesheet["BodyText"]
+        heading_styles = {
+            1: stylesheet["Heading1"],
+            2: stylesheet["Heading2"],
+            3: stylesheet["Heading3"],
+        }
+        bullet_style = ParagraphStyle(
+            "ExportBullet",
+            parent=body_style,
+            leftIndent=18,
+            firstLineIndent=-10,
+            spaceBefore=2,
+            spaceAfter=2,
+        )
+        number_style = ParagraphStyle(
+            "ExportNumber",
+            parent=body_style,
+            leftIndent=18,
+            firstLineIndent=-10,
+            spaceBefore=2,
+            spaceAfter=2,
+        )
+
+        story: list[Any] = []
+        for section in sections:
+            story.append(Paragraph(xml_escape(section["title"]), heading_styles.get(section["level"], stylesheet["Heading3"])))
+            story.extend(self._build_pdf_story_blocks(section["content"], body_style, bullet_style, number_style))
+            story.append(Spacer(1, 0.18 * inch))
+
+        document = SimpleDocTemplate(
+            str(target_path),
+            leftMargin=0.7 * inch,
+            rightMargin=0.7 * inch,
+            topMargin=0.7 * inch,
+            bottomMargin=0.7 * inch,
+        )
+        document.build(story)
+
+    def _build_pdf_story_blocks(
+        self,
+        content: str,
+        body_style: ParagraphStyle,
+        bullet_style: ParagraphStyle,
+        number_style: ParagraphStyle,
+    ) -> list[Any]:
+        blocks: list[Any] = []
+        paragraphs = [block.strip() for block in re.split(r"\n\s*\n", content or "") if block.strip()]
+        if not paragraphs:
+            blocks.append(Paragraph("", body_style))
+            return blocks
+        for paragraph in paragraphs:
+            lines = [line.rstrip() for line in paragraph.splitlines() if line.strip()]
+            if not lines:
+                continue
+            if all(line.lstrip().startswith(("- ", "* ")) for line in lines):
+                for line in lines:
+                    blocks.append(Paragraph(f"• {xml_escape(line.lstrip()[2:].strip())}", bullet_style))
+                continue
+            if all(re.match(r"\d+\.\s+", line.lstrip()) for line in lines):
+                for line in lines:
+                    blocks.append(Paragraph(xml_escape(line.lstrip()), number_style))
+                continue
+            escaped = "<br/>".join(xml_escape(line) for line in lines)
+            blocks.append(Paragraph(escaped, body_style))
+        return blocks
 
     async def _translate_with_llm(
         self,

@@ -41,7 +41,8 @@ class ScenarioService:
             ScenarioSummary(
                 scenario_id=row[0],
                 template_file_name=row[1],
-                prompt=row[2],
+                prompt=self._format_prompt_sequence(self._deserialize_prompt_sequence(row[2])),
+                prompt_sequence=self._deserialize_prompt_sequence(row[2]),
                 mcp_servers=json.loads(row[3] or "[]"),
                 target_languages=json.loads(row[4] or "[]"),
                 output_file_name=row[5],
@@ -56,6 +57,7 @@ class ScenarioService:
         scenario_id: str,
         *,
         prompt: str | None,
+        prompt_sequence: list[str],
         mcp_servers: list[str],
         target_languages: list[str],
         output_file_name: str | None,
@@ -81,7 +83,8 @@ class ScenarioService:
 
         updated_at = datetime.now(UTC)
         session.scenario_id = normalized_id
-        session.prompt = prompt or session.prompt
+        session.prompt_sequence = self._normalize_prompt_sequence(prompt_sequence=prompt_sequence, prompt=prompt or session.prompt)
+        session.prompt = self._format_prompt_sequence(session.prompt_sequence)
         session.mcp_servers = self._normalize_mcp_servers(mcp_servers)
         session.export_languages = target_languages or session.export_languages
         session.output_file_name = output_file_name or session.output_file_name or session.template_path.stem
@@ -130,7 +133,7 @@ class ScenarioService:
                     json.dumps([str(Path("bad_examples") / path.name) for path in copied_bad]),
                     json.dumps(session.template_structure.model_dump(mode="json")),
                     json.dumps(session.draft_state.model_dump(mode="json")),
-                    session.prompt,
+                    self._serialize_prompt_sequence(session.prompt_sequence, prompt),
                     json.dumps(session.mcp_servers),
                     json.dumps(session.export_languages),
                     session.output_file_name,
@@ -144,6 +147,7 @@ class ScenarioService:
             scenario_id=normalized_id,
             session_id=session.session_id,
             prompt=session.prompt,
+            prompt_sequence=session.prompt_sequence,
             mcp_servers=session.mcp_servers,
             target_languages=session.export_languages,
             output_file_name=session.output_file_name,
@@ -208,6 +212,8 @@ class ScenarioService:
         )
         warnings.extend(image_warnings)
 
+        prompt_sequence = self._deserialize_prompt_sequence(row[6])
+
         return SessionContext(
             session_id=session_id,
             scenario_id=normalized_id,
@@ -220,7 +226,8 @@ class ScenarioService:
             enhancement_section_image_paths=enhancement_section_image_paths,
             good_example_paths=good_paths,
             bad_example_paths=bad_paths,
-            prompt=row[6],
+            prompt=self._format_prompt_sequence(prompt_sequence),
+            prompt_sequence=prompt_sequence,
             mcp_servers=mcp_servers,
             export_languages=json.loads(row[8] or "[]"),
             output_file_name=row[9],
@@ -236,6 +243,7 @@ class ScenarioService:
             preview_markdown=preview_markdown,
             warnings=session.warnings,
             prompt=session.prompt,
+            prompt_sequence=session.prompt_sequence,
             mcp_servers=session.mcp_servers,
             target_languages=session.export_languages,
             loaded_files=loaded_files,
@@ -317,6 +325,42 @@ class ScenarioService:
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.settings.scenarios_db_path)
+
+    @staticmethod
+    def _deserialize_prompt_sequence(value: str | None) -> list[str]:
+        if not value:
+            return []
+        try:
+            payload = json.loads(value)
+        except json.JSONDecodeError:
+            payload = value
+
+        if isinstance(payload, list):
+            return [item.strip() for item in payload if isinstance(item, str) and item.strip()]
+        if isinstance(payload, str) and payload.strip():
+            return [payload.strip()]
+        return []
+
+    @classmethod
+    def _normalize_prompt_sequence(cls, *, prompt_sequence: list[str], prompt: str | None) -> list[str]:
+        if prompt_sequence:
+            return [item.strip() for item in prompt_sequence if item.strip()]
+        return cls._deserialize_prompt_sequence(prompt)
+
+    @staticmethod
+    def _serialize_prompt_sequence(prompt_sequence: list[str], fallback_prompt: str | None = None) -> str | None:
+        normalized = [item.strip() for item in prompt_sequence if item.strip()]
+        if normalized:
+            return json.dumps(normalized, ensure_ascii=False)
+        if fallback_prompt and fallback_prompt.strip():
+            return fallback_prompt.strip()
+        return None
+
+    @staticmethod
+    def _format_prompt_sequence(prompt_sequence: list[str]) -> str | None:
+        if not prompt_sequence:
+            return None
+        return "\n\n".join(prompt_sequence)
 
     @staticmethod
     def _normalize_scenario_id(scenario_id: str) -> str:

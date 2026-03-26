@@ -30,6 +30,7 @@ export function ExportScreen({
   const [error, setError] = useState<string | null>(null);
   const [archiveReady, setArchiveReady] = useState(false);
   const [generatedFiles, setGeneratedFiles] = useState<GeneratedExportFile[]>([]);
+  const [statusMessage, setStatusMessage] = useState("No export running.");
 
   if (!snapshot.sessionId) {
     return <Navigate to="/" replace />;
@@ -66,6 +67,9 @@ export function ExportScreen({
   }, [snapshot.sessionId]);
 
   function toggleLanguage(language: string) {
+    if (busy) {
+      return;
+    }
     const nextLanguages = selectedLanguages.includes(language)
       ? selectedLanguages.filter((item) => item !== language)
       : [...selectedLanguages, language];
@@ -75,12 +79,16 @@ export function ExportScreen({
   async function handleExport() {
     setBusy(true);
     setError(null);
+    setStatusMessage(`Generating ${exportFormat.toUpperCase()} files for ${selectedLanguages.length} selected language${selectedLanguages.length === 1 ? "" : "s"}.`);
     try {
       const response = await exportDocuments(snapshot.sessionId!, selectedLanguages, effectiveOutputFileName, exportFormat, snapshot.mcpServers);
       setGeneratedFiles(response.generated_documents);
       setArchiveReady(true);
+      setStatusMessage(`Archive ready. ${response.generated_documents.length} localized ${response.export_format.toUpperCase()} file${response.generated_documents.length === 1 ? "" : "s"} generated.`);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Export failed.");
+      const message = caught instanceof Error ? caught.message : "Export failed.";
+      setError(message);
+      setStatusMessage(message);
     } finally {
       setBusy(false);
     }
@@ -88,11 +96,11 @@ export function ExportScreen({
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_0.9fr]">
-      <section className="panel-surface rounded-[2rem] border border-white/60 bg-white/75 p-8 shadow-panel backdrop-blur">
+      <section className="export-panel-surface rounded-[2rem] border border-white/60 bg-white/75 p-8 shadow-panel">
         <p className="text-xs uppercase tracking-[0.24em] text-steel">Phase 3</p>
         <h1 className="mt-3 font-serif text-4xl text-ink">Structural translation and localized export</h1>
         <p className="mt-3 max-w-2xl text-sm leading-7 text-steel">
-          Select the target languages and export format, then generate localized files. The backend preserves the original template layout and packages the generated documents in a ZIP archive.
+          Select the target languages and export format, then generate localized files. The backend renders the current refine draft directly into DOCX or PDF and packages the generated documents in a ZIP archive.
         </p>
 
         <div className="mt-8 flex flex-wrap gap-3">
@@ -108,6 +116,7 @@ export function ExportScreen({
                   active ? "selection-chip-active border-ink bg-ink text-sand" : "selection-chip-inactive border-stone-300 bg-white text-ink hover:border-ember",
                 ].join(" ")}
                 aria-pressed={active}
+                aria-disabled={busy}
               >
                 {language}
               </button>
@@ -127,18 +136,26 @@ export function ExportScreen({
                 <button
                   key={option.id}
                   type="button"
-                  onClick={() => onExportFormatChange(option.id as "docx" | "pdf")}
+                  onClick={() => {
+                    if (!busy) {
+                      onExportFormatChange(option.id as "docx" | "pdf");
+                    }
+                  }}
                   className={[
                     "rounded-full px-4 py-2 text-sm font-semibold transition",
                     active ? "bg-ink text-sand" : "text-steel hover:text-ink",
                   ].join(" ")}
                   aria-pressed={active}
+                  aria-disabled={busy}
                 >
                   {option.label}
                 </button>
               );
             })}
           </div>
+            <p className="mt-3 text-sm leading-6 text-steel">
+              Both DOCX and PDF are generated directly from the current refine draft.
+            </p>
         </div>
 
         <label className="mt-8 block">
@@ -146,7 +163,12 @@ export function ExportScreen({
           <input
             type="text"
             value={outputFileName}
-            onChange={(event) => onOutputFileNameChange(event.target.value)}
+            onChange={(event) => {
+              if (!busy) {
+                onOutputFileNameChange(event.target.value);
+              }
+            }}
+            readOnly={busy}
             placeholder="localized-specification"
             className="mt-3 w-full rounded-3xl border border-stone-300 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-ember"
           />
@@ -156,16 +178,21 @@ export function ExportScreen({
           type="button"
           onClick={handleExport}
           disabled={busy || selectedLanguages.length === 0}
-          className="mt-8 inline-flex items-center gap-2 rounded-full bg-moss px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#2f493b] disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-8 inline-flex min-w-[15.5rem] items-center justify-center gap-2 rounded-full bg-moss px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#2f493b] disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <FileOutput className="h-4 w-4" />}
+          <span className="relative inline-flex h-4 w-4 items-center justify-center">
+            <FileOutput className={["h-4 w-4", busy ? "opacity-0" : "opacity-100"].join(" ")} />
+            <LoaderCircle className={["absolute h-4 w-4 animate-spin", busy ? "opacity-100" : "opacity-0"].join(" ")} />
+          </span>
           Generate localized archive
         </button>
 
-        {error ? <p className="mt-4 text-sm text-rose-700">{error}</p> : null}
+        <div className="mt-4 min-h-[1.75rem] text-sm">
+          {error ? <p className="text-rose-700">{error}</p> : null}
+        </div>
       </section>
 
-      <section className="panel-surface relative overflow-hidden rounded-[2rem] border border-white/60 bg-[#11131a] p-8 text-sand shadow-panel">
+      <section className="export-panel-surface relative overflow-hidden rounded-[2rem] border border-white/60 bg-[#11131a] p-8 text-sand shadow-panel">
         <p className="text-xs uppercase tracking-[0.24em] text-sand/60">Artifacts</p>
         <h2 className="mt-3 font-serif text-3xl">Export package</h2>
         <div className="mt-6 space-y-4 text-sm leading-7 text-sand/80">
@@ -176,14 +203,12 @@ export function ExportScreen({
           <p>{generatedFiles.length} localized files generated</p>
         </div>
 
-        {busy ? (
-          <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-sand/80">
-            <div className="flex items-center gap-2">
-              <LoaderCircle className="h-4 w-4 animate-spin" />
-              <span>Generating translations and rebuilding the archive. Existing artifacts stay visible until the new export is ready.</span>
-            </div>
+        <div className="mt-6 min-h-[4.75rem] rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-sand/80">
+          <div className="flex items-start gap-2">
+            {busy ? <LoaderCircle className="mt-0.5 h-4 w-4 animate-spin" /> : <div className="mt-1 h-2.5 w-2.5 rounded-full bg-sand/40" />}
+            <span>{busy ? `${statusMessage} Existing artifacts stay visible until the new export is ready.` : statusMessage}</span>
           </div>
-        ) : null}
+        </div>
 
         <div className="mt-8 min-h-[3.5rem] flex flex-wrap gap-3">
           {archiveReady ? (

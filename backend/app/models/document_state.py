@@ -53,6 +53,7 @@ class SessionContext(BaseModel):
     bad_example_paths: list[Path] = Field(default_factory=list)
     scenario_id: str | None = None
     prompt: str | None = None
+    prompt_sequence: list[str] = Field(default_factory=list)
     mcp_servers: list[str] = Field(default_factory=list)
     export_languages: list[str] = Field(default_factory=list)
     output_file_name: str | None = None
@@ -80,6 +81,7 @@ class ChatRequest(BaseModel):
     session_id: str
     message: str
     mcp_servers: list[str] | None = None
+    persist_prompt: bool = True
 
 
 class ChatSectionUpdate(BaseModel):
@@ -114,6 +116,7 @@ class ChatResponse(BaseModel):
     draft_state: DocumentDraftState
     preview_markdown: str
     prompt: str | None = None
+    prompt_sequence: list[str] = Field(default_factory=list)
     next_required_sections: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     llm_available: bool = True
@@ -189,6 +192,7 @@ class ScenarioSummary(BaseModel):
     scenario_id: str
     template_file_name: str | None = None
     prompt: str | None = None
+    prompt_sequence: list[str] = Field(default_factory=list)
     mcp_servers: list[str] = Field(default_factory=list)
     target_languages: list[str] = Field(default_factory=list)
     output_file_name: str | None = None
@@ -199,6 +203,7 @@ class SaveScenarioRequest(BaseModel):
     session_id: str
     scenario_id: str
     prompt: str | None = None
+    prompt_sequence: list[str] = Field(default_factory=list)
     mcp_servers: list[str] = Field(default_factory=list)
     target_languages: list[str] = Field(default_factory=list)
     output_file_name: str | None = None
@@ -208,6 +213,7 @@ class SaveScenarioResponse(BaseModel):
     scenario_id: str
     session_id: str
     prompt: str | None = None
+    prompt_sequence: list[str] = Field(default_factory=list)
     mcp_servers: list[str] = Field(default_factory=list)
     target_languages: list[str] = Field(default_factory=list)
     output_file_name: str | None = None
@@ -226,6 +232,7 @@ class LoadScenarioResponse(BaseModel):
     preview_markdown: str
     warnings: list[str] = Field(default_factory=list)
     prompt: str | None = None
+    prompt_sequence: list[str] = Field(default_factory=list)
     mcp_servers: list[str] = Field(default_factory=list)
     target_languages: list[str] = Field(default_factory=list)
     loaded_files: list[LoadedFileReference] = Field(default_factory=list)

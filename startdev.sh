@@ -47,13 +47,15 @@ required = [
     "chromadb",
     "langchain_huggingface",
     "sentence_transformers",
+  "docx",
+  "reportlab",
 ]
 missing = [name for name in required if importlib.util.find_spec(name) is None]
 sys.exit(0 if not missing else 1)
 PY
 then
-  echo "Warning: Chroma retrieval dependencies are missing in $PYTHON_BIN." >&2
-  echo "         The refine flow will fall back to lexical retrieval until backend requirements are installed." >&2
+  echo "Warning: one or more backend dependencies are missing in $PYTHON_BIN." >&2
+  echo "         Retrieval may fall back to lexical search and export features may fail until backend requirements are installed." >&2
 fi
 
 BACKEND_PID=""

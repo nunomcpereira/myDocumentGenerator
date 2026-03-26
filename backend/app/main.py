@@ -140,6 +140,8 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
     if request.mcp_servers is not None:
         session.mcp_servers = normalize_mcp_servers(request.mcp_servers)
+    if not session.prompt_sequence and session.prompt:
+        session.prompt_sequence = [session.prompt.strip()] if session.prompt.strip() else []
 
     retrieval_context = rag_service.retrieve(request.session_id, request.message)
     negative_constraints = rag_service.build_negative_constraints(retrieval_context.bad_examples)
@@ -203,7 +205,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
     session.draft_state.summary = result.summary or session.draft_state.summary
     session.draft_state.updated_at = datetime.now(UTC)
-    session.prompt = update_prompt_summary(session.prompt, request.message, result.prompt_summary)
+    if request.persist_prompt:
+        session.prompt_sequence = append_prompt_sequence(session.prompt_sequence, request.message)
+        session.prompt = format_prompt_sequence(session.prompt_sequence)
     session_store.update(session.session_id, session)
 
     preview_markdown = render_preview_markdown(session)
@@ -214,6 +218,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         draft_state=session.draft_state,
         preview_markdown=preview_markdown,
         prompt=session.prompt,
+        prompt_sequence=session.prompt_sequence,
         next_required_sections=next_sections,
         warnings=warnings,
         llm_available=llm_available,
@@ -283,11 +288,10 @@ async def export(request: ExportRequest) -> ExportResponse:
     except SessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    if session.template_structure.file_type != "docx":
-        raise HTTPException(
-            status_code=400,
-            detail="Export requires the source template to be .docx so styling and layout can be preserved.",
-        )
+    try:
+        translation_service.validate_export_request(request.export_format)
+    except ExportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     translation_payload: dict[str, dict[str, str]] = {}
     warnings = list(session.warnings)
@@ -375,12 +379,6 @@ async def export(request: ExportRequest) -> ExportResponse:
         session = session_store.get(request.session_id)
     except SessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    if session.template_structure.file_type != "docx":
-        raise HTTPException(
-            status_code=400,
-            detail="Export requires the source template to be .docx so styling and layout can be preserved.",
-        )
 
     translation_payload: dict[str, dict[str, str]] = {}
     warnings = list(session.warnings)
@@ -493,6 +491,7 @@ async def save_scenario(request: SaveScenarioRequest) -> SaveScenarioResponse:
             session,
             request.scenario_id,
             prompt=request.prompt,
+            prompt_sequence=request.prompt_sequence,
             mcp_servers=request.mcp_servers,
             target_languages=request.target_languages,
             output_file_name=request.output_file_name,
@@ -534,13 +533,11 @@ def build_chat_system_prompt(session) -> str:
     base_prompt = (
         "You are an interviewing analyst helping complete a structured specification document. "
         "Ask concise follow-up questions only when information is missing, and update the draft with any user-provided facts. "
-        "You must also maintain a concise prompt_summary that captures only the user's instructions, constraints, scope, and decisions from the interview turns. "
-        "Do not include assistant questions, filler text, or speculative content in prompt_summary because it is saved with the scenario and may be replayed later. "
         "When the user asks to set or replace a value in a named section, you must return a section_updates entry for that section. "
         "When the user asks to add, move, reorder, or delete sections, return section_operations that describe the structural change. "
         "Use action=add for new sections, action=move for reordering, and action=delete for removals. "
         "For moves and inserts, use position=top, end, before, or after, and include the relative section title or id when needed. "
-        "Always use the exact section_id values provided below whenever possible. Return JSON with assistant_message, summary, prompt_summary, section_updates, and section_operations.\n"
+        "Always use the exact section_id values provided below whenever possible. Return JSON with assistant_message, summary, section_updates, and section_operations.\n"
         f"Template outline:\n{outline}"
     )
     return llm_provider.with_scenario_mcp_context(base_prompt, session.mcp_servers)
@@ -552,49 +549,34 @@ def build_chat_user_prompt(session, message: str, good_examples, negative_constr
         for section in session.draft_state.sections
     )
     pending_sections = ", ".join(section.title for section in session.draft_state.sections if section.status != "complete") or "none"
-    existing_prompt_summary = session.prompt or "No saved user-input summary yet."
+    existing_prompt_sequence = format_prompt_sequence(session.prompt_sequence) or "No saved user instructions yet."
     positive_context = "\n\n".join(snippet.content[:900] for snippet in good_examples) or "No good examples were uploaded."
     negative_context = "\n".join(f"- {constraint}" for constraint in negative_constraints) or "- No bad examples were uploaded."
     return (
         f"User message:\n{message}\n\n"
-        f"Existing saved user-input summary:\n{existing_prompt_summary}\n\n"
+        f"Saved user instructions in chronological order:\n{existing_prompt_sequence}\n\n"
         f"Current draft:\n{draft_snapshot}\n\n"
         f"Pending sections: {pending_sections}\n\n"
         f"Good examples for tone and structure:\n{positive_context}\n\n"
         f"Negative constraints derived from bad examples:\n{negative_context}\n\n"
         "Return JSON in this shape: "
-        '{"assistant_message": string, "summary": string, "prompt_summary": string, "section_updates": [{"section_id": string, "title": string, "content": string, "status": "missing|in_progress|complete"}], "section_operations": [{"action": "add|move|delete", "section_id": string | null, "title": string | null, "content": string, "status": "missing|in_progress|complete", "position": "top|end|before|after" | null, "relative_section_id": string | null, "relative_title": string | null}]}. '
-        "Use section_updates for content changes, section_operations for structural changes, and prompt_summary for the cumulative summary of only the user's inputs."
+        '{"assistant_message": string, "summary": string, "section_updates": [{"section_id": string, "title": string, "content": string, "status": "missing|in_progress|complete"}], "section_operations": [{"action": "add|move|delete", "section_id": string | null, "title": string | null, "content": string, "status": "missing|in_progress|complete", "position": "top|end|before|after" | null, "relative_section_id": string | null, "relative_title": string | null}]}. '
+        "Use section_updates for content changes and section_operations for structural changes."
     )
 
 
-def update_prompt_summary(existing_summary: str | None, latest_message: str, candidate_summary: str | None) -> str | None:
-    normalized_candidate = normalize_prompt_summary(candidate_summary)
-    if normalized_candidate:
-        return normalized_candidate
-
-    normalized_latest_message = normalize_prompt_summary(latest_message)
-    if not normalized_latest_message:
-        return normalize_prompt_summary(existing_summary)
-
-    normalized_existing_summary = normalize_prompt_summary(existing_summary)
-    if not normalized_existing_summary:
-        return normalized_latest_message
-
-    if normalize_key(normalized_latest_message) in normalize_key(normalized_existing_summary):
-        return normalized_existing_summary
-
-    return f"{normalized_existing_summary}\n- {normalized_latest_message}"
+def append_prompt_sequence(existing_prompts: list[str], latest_message: str) -> list[str]:
+    next_message = latest_message.strip()
+    if not next_message:
+        return list(existing_prompts)
+    return [*existing_prompts, next_message]
 
 
-def normalize_prompt_summary(value: str | None) -> str | None:
-    if value is None:
+def format_prompt_sequence(prompt_sequence: list[str]) -> str | None:
+    normalized = [item.strip() for item in prompt_sequence if item.strip()]
+    if not normalized:
         return None
-    lines = [" ".join(line.split()) for line in value.splitlines()]
-    normalized_lines = [line for line in lines if line]
-    if not normalized_lines:
-        return None
-    return "\n".join(normalized_lines)
+    return "\n\n".join(normalized)
 
 
 def render_preview_markdown(session) -> str:

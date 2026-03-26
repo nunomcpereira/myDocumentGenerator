@@ -33,6 +33,7 @@ export function IngestionScreen({ onInitialized }: IngestionScreenProps) {
         sessionId: response.session_id,
         scenarioId: "",
         prompt: "",
+        promptSequence: [],
         autoApplyPromptOnRefine: false,
         mcpServers: [],
         exportLanguages: ["English", "Spanish", "French"],
