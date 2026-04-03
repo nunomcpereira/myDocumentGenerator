@@ -99,7 +99,8 @@ class LLMProvider:
                     payload["tool_choice"] = "none" if force_finalize_without_tools else "auto"
 
                 logger.info(
-                    "Dispatching llama.cpp chat completion: model=%s endpoint=%s response_format=%s tools_in_payload=%s attempt=%s",
+                    "Dispatching chat completion: provider=%s model=%s endpoint=%s response_format=%s tools_in_payload=%s attempt=%s",
+                    self.settings.llm_provider,
                     self.settings.llm_model,
                     f"{self.settings.llm_base_url.rstrip('/')}/chat/completions",
                     response_format["type"] if response_format and "type" in response_format else None,
@@ -115,7 +116,7 @@ class LLMProvider:
                 message = choices[0].get("message") or {}
                 content = self._normalize_message_content(message.get("content"))
                 tool_calls = message.get("tool_calls") or []
-                if not tool_calls and gateway_client is not None and not force_finalize_without_tools:
+                if not tool_calls and gateway_client is not None and not force_finalize_without_tools and self.settings.llm_provider == "local":
                     tool_calls = self._extract_inline_tool_calls(content)
                 if tool_calls and gateway_client is not None:
                     if force_finalize_without_tools:
@@ -268,15 +269,13 @@ class LLMProvider:
             response.raise_for_status()
         except httpx.ConnectError as exc:
             raise LLMOfflineError(
-                "Unable to reach the local LLM endpoint at http://localhost:8050/v1. Start llama.cpp or update LLM_BASE_URL."
+                f"Unable to reach the LLM endpoint at {self.settings.llm_base_url}. "
+                "Check that LLM_BASE_URL is correct and the service is running."
             ) from exc
         except httpx.TimeoutException as exc:
             raise LLMOfflineError(
-                (
-                    "The local LLM endpoint timed out while waiting for a response. "
-                    f"Current LLM timeout: {self.settings.llm_request_timeout_seconds:.0f}s. "
-                    "Check whether llama.cpp is responsive, the model is fully loaded, or increase LLM_REQUEST_TIMEOUT_SECONDS."
-                )
+                f"The LLM endpoint timed out after {self.settings.llm_request_timeout_seconds:.0f}s. "
+                "Check that the service is responsive or increase LLM_REQUEST_TIMEOUT_SECONDS."
             ) from exc
         except httpx.HTTPStatusError as exc:
             detail = exc.response.text.strip() or str(exc)

@@ -1,4 +1,4 @@
-import { startTransition, useDeferredValue, useEffect, useState } from "react";
+import { startTransition, useDeferredValue, useEffect, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
 
 import { buildSessionFileUrl, sendChatMessage } from "../api/client";
@@ -15,6 +15,7 @@ type RefinementScreenProps = {
 };
 
 export function RefinementScreen({ snapshot, mcpCatalog, onSelectedMcpServersChange, onUpdated }: RefinementScreenProps) {
+  const cancelReplayRef = useRef(false);
   const [messages, setMessages] = useState<ChatMessage[]>(() => [
     {
       role: "assistant",
@@ -51,16 +52,16 @@ export function RefinementScreen({ snapshot, mcpCatalog, onSelectedMcpServersCha
       return;
     }
 
-    let cancelled = false;
-
-    void handleReplayPromptSequence(snapshot.promptSequence, cancelled);
+    cancelReplayRef.current = false;
+    void handleReplayPromptSequence(snapshot.promptSequence);
 
     return () => {
-      cancelled = true;
+      cancelReplayRef.current = true;
     };
   }, [onUpdated, snapshot]);
 
-  async function handleReplayPromptSequence(promptSequence: string[], cancelled = false) {
+  async function handleReplayPromptSequence(promptSequence: string[]) {
+    const cancelled = () => cancelReplayRef.current;
     const prompts = promptSequence.map((item) => item.trim()).filter(Boolean);
     if (prompts.length === 0) {
       startTransition(() => {
@@ -84,12 +85,12 @@ export function RefinementScreen({ snapshot, mcpCatalog, onSelectedMcpServersCha
 
     try {
       for (const prompt of prompts) {
-        if (cancelled) {
+        if (cancelled()) {
           return;
         }
         setMessages((current) => [...current, { role: "user", content: prompt }]);
         const response = await sendChatMessage(snapshot.sessionId!, prompt, snapshot.mcpServers, false);
-        if (cancelled) {
+        if (cancelled()) {
           return;
         }
         setMessages((current) => [...current, { role: "assistant", content: response.assistant_message }]);
@@ -107,7 +108,7 @@ export function RefinementScreen({ snapshot, mcpCatalog, onSelectedMcpServersCha
         });
       }
     } catch (caught) {
-      if (cancelled) {
+      if (cancelled()) {
         return;
       }
       const error = caught instanceof Error ? caught.message : "Chat request failed.";
@@ -117,7 +118,7 @@ export function RefinementScreen({ snapshot, mcpCatalog, onSelectedMcpServersCha
         onUpdated(nextSnapshot);
       });
     } finally {
-      if (!cancelled) {
+      if (!cancelled()) {
         setBusy(false);
       }
     }

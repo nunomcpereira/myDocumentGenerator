@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     app_name: str = "Documentation Generation & Localization Engine"
     environment: str = "development"
     api_prefix: str = "/v1"
+    llm_provider: str = Field(default="local", alias="LLM_PROVIDER")
     llm_base_url: str = Field(default="http://localhost:8050/v1", alias="LLM_BASE_URL")
     llm_api_key: str = Field(default="local-llm", alias="LLM_API_KEY")
     llm_model: str = Field(default="llama.cpp", alias="LLM_MODEL")
