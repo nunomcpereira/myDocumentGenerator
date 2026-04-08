@@ -9,11 +9,6 @@ from uuid import uuid4
 from fastapi import UploadFile
 from pypdf import PdfReader
 
-try:
-    import pdfplumber as _pdfplumber
-except ImportError:
-    _pdfplumber = None
-
 from app.core.config import get_settings
 from app.core.errors import UnsupportedTemplateError
 from app.models.document_state import DraftSectionState, DocumentDraftState, SessionContext, TemplateSection, TemplateStructure
@@ -32,21 +27,6 @@ class ImportedSection:
     content: str
     image_paths: list[Path]
     level: int = 1
-
-
-PDF_PAGE_NUMBER_PATTERN = re.compile(r"^page\s+\d+(?:\s+of\s+\d+)?$", flags=re.IGNORECASE)
-PDF_NUMBERED_HEADING_PATTERN = re.compile(r"^(\d+(?:\.\d+){0,4})(?:[.)])?\s+.+$")
-PDF_NAMED_HEADING_PATTERN = re.compile(r"^(appendix|annex|section|chapter)\s+[a-z0-9].*$", flags=re.IGNORECASE)
-PDF_CONTROLLED_DOCUMENT_PATTERN = re.compile(r"^controlled document\s+\d+\s*\(\d+\)$", flags=re.IGNORECASE)
-PDF_FOOTER_PATTERNS = (
-    re.compile(r"^valid only on the day of printing$", flags=re.IGNORECASE),
-    re.compile(r"^number:\s+", flags=re.IGNORECASE),
-    re.compile(r"^retrieved by\s+", flags=re.IGNORECASE),
-)
-PDF_DOT_LEADER_PATTERN = re.compile(r"\.{3,}")
-PDF_BRACKETED_ITEM_PATTERN = re.compile(r"^\[[^\]]+\]\s+")
-PDF_CHANGE_LOG_ROW_PATTERN = re.compile(r"^\d+\.\d+\s+all\b", flags=re.IGNORECASE)
-PDF_NOT_APPLICABLE_PATTERN = re.compile(r"^n\s*/\s*a\]?$", flags=re.IGNORECASE)
 
 
 class IngestionService:
@@ -288,8 +268,23 @@ class IngestionService:
 
             flush_current_section()
             return sections
+
         if suffix == ".pdf":
-            return self._extract_pdf_sections(file_path, image_output_dir=image_output_dir)
+            try:
+                converted = markitdown_service.convert_file(file_path)
+            except Exception:
+                return []
+            sections = self._split_markdown_into_sections(
+                converted.markdown,
+                default_title=converted.title or self._default_imported_title(file_path),
+            )
+            if image_output_dir is not None and sections:
+                reader = PdfReader(str(file_path))
+                image_paths = self._extract_pdf_page_images(reader, image_output_dir)
+                if image_paths:
+                    sections[0].image_paths.extend(image_paths)
+            return sections
+
         try:
             converted = markitdown_service.convert_file(file_path)
         except Exception:
@@ -362,8 +357,6 @@ class IngestionService:
         suffix = template_path.suffix.lower()
         if suffix == ".docx":
             return self._parse_docx_template(template_path)
-        if suffix == ".pdf":
-            return self._parse_pdf_template(template_path)
         return self._parse_markitdown_template(template_path)
 
     def _parse_markitdown_template(self, template_path: Path) -> TemplateStructure:
@@ -453,211 +446,6 @@ class IngestionService:
             extracted_outline=extracted_outline,
         )
 
-    def _parse_pdf_template(self, template_path: Path) -> TemplateStructure:
-        extracted_sections = self._extract_pdf_sections(template_path)
-        if extracted_sections:
-            outline = [section.title for section in extracted_sections]
-            return TemplateStructure(
-                file_name=template_path.name,
-                file_type="pdf",
-                sections=[
-                    TemplateSection(
-                        id=f"section-{index}",
-                        title=section.title,
-                        level=self._infer_pdf_heading_level(section.title),
-                        source_excerpt=(section.content or section.title)[:1200],
-                    )
-                    for index, section in enumerate(extracted_sections, start=1)
-                ],
-                extracted_outline=outline,
-            )
-
-        reader = PdfReader(str(template_path))
-        sections: list[TemplateSection] = []
-        outline: list[str] = []
-        for page_index, page in enumerate(reader.pages, start=1):
-            text = (page.extract_text() or "").strip()
-            if not text:
-                continue
-            title = f"Page {page_index}"
-            outline.append(title)
-            sections.append(
-                TemplateSection(
-                    id=f"page-{page_index}",
-                    title=title,
-                    level=1,
-                    source_excerpt=text[:1200],
-                )
-            )
-        return TemplateStructure(
-            file_name=template_path.name,
-            file_type="pdf",
-            sections=sections,
-            extracted_outline=outline,
-        )
-
-    def _extract_pdf_sections(self, file_path: Path, image_output_dir: Path | None = None) -> list[ImportedSection]:
-        reader = PdfReader(str(file_path))
-        page_texts = [(page.extract_text() or "") for page in reader.pages]
-        if _pdfplumber is not None:
-            page_texts = self._enhance_pdf_page_texts_with_tables(file_path, page_texts)
-        known_headings = self._extract_pdf_outline_candidates(page_texts)
-        body_page_texts = [page_text for page_text in page_texts if not self._is_pdf_table_of_contents_page(page_text)]
-        sections = self._split_pdf_text_into_sections(body_page_texts or page_texts, known_headings=known_headings)
-        if image_output_dir is not None and sections:
-            image_paths = self._extract_pdf_page_images(reader, image_output_dir)
-            if image_paths:
-                sections[0].image_paths.extend(image_paths)
-        return sections
-
-    def _split_pdf_text_into_sections(self, page_texts: list[str], *, known_headings: list[str] | None = None) -> list[ImportedSection]:
-        sections: list[ImportedSection] = []
-        current_title: str | None = None
-        current_lines: list[str] = []
-        leading_lines: list[str] = []
-        normalized_known_headings = self._build_known_heading_lookup(known_headings or [])
-
-        def flush_current_section() -> None:
-            nonlocal current_title, current_lines
-            if current_title is None:
-                return
-            sections.append(
-                ImportedSection(
-                    title=current_title,
-                    content=self._join_pdf_content_lines(current_lines),
-                    image_paths=[],
-                )
-            )
-            current_title = None
-            current_lines = []
-
-        for page_text in page_texts:
-            for line in self._prepare_pdf_lines(page_text):
-                heading_title = self._resolve_pdf_heading_title(line, normalized_known_headings)
-                if heading_title is not None:
-                    flush_current_section()
-                    current_title = heading_title
-                    current_lines = list(leading_lines)
-                    leading_lines = []
-                    continue
-
-                if current_title is None:
-                    leading_lines.append(line)
-                else:
-                    current_lines.append(line)
-
-        flush_current_section()
-        return sections
-
-    def _extract_pdf_outline_candidates(self, page_texts: list[str]) -> list[str]:
-        headings: list[str] = []
-        for page_text in page_texts:
-            if not self._is_pdf_table_of_contents_page(page_text):
-                continue
-            for raw_line in page_text.splitlines():
-                normalized_line = " ".join(raw_line.replace("\xa0", " ").split())
-                if not normalized_line:
-                    continue
-                if normalized_line.lower() == "index":
-                    continue
-                if normalized_line.startswith("."):
-                    continue
-                if PDF_DOT_LEADER_PATTERN.search(normalized_line) is None:
-                    continue
-                heading_candidate = PDF_DOT_LEADER_PATTERN.split(normalized_line, maxsplit=1)[0].strip()
-                if not heading_candidate:
-                    continue
-                if not PDF_NUMBERED_HEADING_PATTERN.match(heading_candidate):
-                    continue
-                headings.append(heading_candidate)
-        return headings
-
-    def _build_known_heading_lookup(self, headings: list[str]) -> dict[str, str]:
-        lookup: dict[str, str] = {}
-        for heading in headings:
-            normalized_heading = self._normalize_title(heading)
-            if normalized_heading:
-                lookup[normalized_heading] = heading
-            stripped_heading = self._strip_leading_heading_number(heading)
-            normalized_stripped_heading = self._normalize_title(stripped_heading)
-            if normalized_stripped_heading:
-                lookup[normalized_stripped_heading] = heading
-        return lookup
-
-    def _resolve_pdf_heading_title(self, line: str, known_heading_lookup: dict[str, str]) -> str | None:
-        normalized_line = self._normalize_title(line)
-        if known_heading_lookup:
-            known_heading = known_heading_lookup.get(normalized_line)
-            if known_heading is not None:
-                return line
-            stripped_line = self._strip_leading_heading_number(line)
-            known_heading = known_heading_lookup.get(self._normalize_title(stripped_line))
-            if known_heading is not None:
-                return line
-            if self._looks_like_pdf_heading(line):
-                return line
-            return None
-
-        if self._looks_like_pdf_heading(line):
-            return line
-        return None
-
-    def _is_pdf_table_of_contents_page(self, page_text: str) -> bool:
-        normalized_lines = [" ".join(line.replace("\xa0", " ").split()) for line in page_text.splitlines()]
-        dot_leader_lines = sum(1 for line in normalized_lines if PDF_DOT_LEADER_PATTERN.search(line))
-        has_index_heading = any(line.lower() == "index" for line in normalized_lines)
-        return has_index_heading and dot_leader_lines >= 5
-
-    def _prepare_pdf_lines(self, page_text: str) -> list[str]:
-        lines: list[str] = []
-        for raw_line in page_text.splitlines():
-            normalized_line = " ".join(raw_line.replace("\xa0", " ").split())
-            if not normalized_line:
-                continue
-            if PDF_PAGE_NUMBER_PATTERN.fullmatch(normalized_line):
-                continue
-            if normalized_line.startswith("."):
-                continue
-            if PDF_CONTROLLED_DOCUMENT_PATTERN.fullmatch(normalized_line):
-                continue
-            if any(pattern.match(normalized_line) for pattern in PDF_FOOTER_PATTERNS):
-                continue
-            if PDF_DOT_LEADER_PATTERN.search(normalized_line):
-                continue
-            lines.append(normalized_line)
-        return lines
-
-    def _looks_like_pdf_heading(self, line: str) -> bool:
-        if len(line) < 3 or len(line) > 140:
-            return False
-        if line.endswith((".", ",", ";", ":")):
-            return False
-        if PDF_BRACKETED_ITEM_PATTERN.match(line):
-            return False
-        if PDF_CHANGE_LOG_ROW_PATTERN.match(line):
-            return False
-        if PDF_NOT_APPLICABLE_PATTERN.match(line):
-            return False
-
-        word_count = len(line.split())
-        if word_count > 18:
-            return False
-
-        if PDF_NUMBERED_HEADING_PATTERN.match(line):
-            return True
-        if PDF_NAMED_HEADING_PATTERN.match(line):
-            return True
-
-        alpha_characters = [character for character in line if character.isalpha()]
-        if not alpha_characters:
-            return False
-
-        uppercase_ratio = sum(1 for character in alpha_characters if character.isupper()) / len(alpha_characters)
-        if uppercase_ratio >= 0.8 and word_count <= 12:
-            return True
-
-        return False
-
     @staticmethod
     def _docx_table_to_markdown(table) -> str:
         """Convert a python-docx Table object to a GitHub-flavored markdown table string."""
@@ -675,38 +463,6 @@ class IngestionService:
             return "\n".join([rows_md[0], separator] + rows_md[1:])
         except Exception:
             return ""
-
-    @staticmethod
-    def _enhance_pdf_page_texts_with_tables(file_path: Path, page_texts: list[str]) -> list[str]:
-        """Append markdown table representations to page text where pdfplumber detects tables."""
-        if _pdfplumber is None:
-            return page_texts
-        enhanced = list(page_texts)
-        try:
-            with _pdfplumber.open(str(file_path)) as pdf:
-                for page_idx, page in enumerate(pdf.pages):
-                    if page_idx >= len(enhanced):
-                        break
-                    tables = page.extract_tables()
-                    if not tables:
-                        continue
-                    table_markdowns: list[str] = []
-                    for table_data in tables:
-                        if not table_data:
-                            continue
-                        rows_md: list[str] = []
-                        for row in table_data:
-                            cells = [str(cell or "").strip().replace("\n", " ").replace("|", "\\|") for cell in row]
-                            rows_md.append("| " + " | ".join(cells) + " |")
-                        if rows_md:
-                            col_count = len(table_data[0]) if table_data else 0
-                            separator = "| " + " | ".join(["---"] * col_count) + " |"
-                            table_markdowns.append("\n".join([rows_md[0], separator] + rows_md[1:]))
-                    if table_markdowns:
-                        enhanced[page_idx] = enhanced[page_idx] + "\n\n" + "\n\n".join(table_markdowns)
-        except Exception:
-            pass
-        return enhanced
 
     @staticmethod
     def _extract_pdf_page_images(reader, image_output_dir: Path) -> list[Path]:
@@ -727,26 +483,6 @@ class IngestionService:
             except Exception:
                 continue
         return image_paths
-
-    def _infer_pdf_heading_level(self, title: str) -> int:
-        match = PDF_NUMBERED_HEADING_PATTERN.match(title)
-        if match is None:
-            return 1
-        return min(match.group(1).count(".") + 1, 6)
-
-    @staticmethod
-    def _join_pdf_content_lines(lines: list[str]) -> str:
-        if not lines:
-            return ""
-        merged: list[str] = [lines[0]]
-        for i in range(1, len(lines)):
-            prev = merged[-1]
-            curr = lines[i]
-            if prev and prev[-1] not in '.!?:;' and curr and curr[0].islower():
-                merged[-1] = prev + " " + curr
-            else:
-                merged.append(curr)
-        return "  \n".join(merged).strip()
 
     @staticmethod
     def _strip_leading_heading_number(value: str) -> str:
