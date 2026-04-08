@@ -19,7 +19,7 @@ export function IngestionScreen({ onInitialized }: IngestionScreenProps) {
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!template) {
-      setError("Select a .docx or .pdf template before initializing the session.");
+      setError("Select a source document before initializing the session.");
       return;
     }
 
@@ -67,11 +67,11 @@ export function IngestionScreen({ onInitialized }: IngestionScreenProps) {
           <label className="block rounded-3xl border border-dashed border-stone-300 bg-sand/70 p-5">
             <span className="mb-2 flex items-center gap-2 text-sm font-semibold text-ink">
               <FileUp className="h-4 w-4" />
-              Template (.docx or .pdf)
+              Template or source document
             </span>
             <input
               type="file"
-              accept=".docx,.pdf"
+              accept=".doc,.docx,.pdf,.md,.txt,.html,.htm,.csv,.xlsx,.xls,.pptx,.png,.jpg,.jpeg,.gif,.bmp,.tif,.tiff,.webp,.ipynb,.epub,.zip,.msg"
               onChange={(event) => setTemplate(event.target.files?.[0] ?? null)}
               className="mt-2 block text-sm text-steel"
             />

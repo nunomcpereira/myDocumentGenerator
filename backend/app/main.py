@@ -441,10 +441,13 @@ async def download_export(session_id: str) -> FileResponse:
 
 @app.get("/export/{session_id}/files", response_model=list[GeneratedExportFile])
 async def list_export_files(session_id: str) -> list[GeneratedExportFile]:
+    session_dir = settings.generated_root / session_id
+    if not session_dir.exists():
+        raise HTTPException(status_code=404, detail="No exported documents found for this session.")
     generated_files = sorted(
         [
             path
-            for path in (settings.generated_root / session_id).iterdir()
+            for path in session_dir.iterdir()
             if path.is_file() and path.suffix.lower() in {".docx", ".pdf"}
         ],
         key=lambda path: path.name,
@@ -580,6 +583,13 @@ def format_prompt_sequence(prompt_sequence: list[str]) -> str | None:
 
 
 def render_preview_markdown(session) -> str:
+    if (
+        session.source_preview_markdown
+        and not any(section.content.strip() for section in session.draft_state.sections)
+        and not session.enhancement_section_image_paths
+    ):
+        return session.source_preview_markdown
+
     parts: list[str] = []
     for section in session.draft_state.sections:
         section_images = session.enhancement_section_image_paths.get(section.section_id, [])

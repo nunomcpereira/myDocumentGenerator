@@ -4,7 +4,7 @@ import { renderAsync } from "docx-preview";
 
 type DocxPreviewFrameProps = {
   previewUrl: string | null;
-  templateFileType?: "docx" | "pdf";
+  templateFileType?: string;
 };
 
 const iframeMarkup = `<!doctype html>

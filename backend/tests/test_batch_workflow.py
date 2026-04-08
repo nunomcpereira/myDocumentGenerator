@@ -611,7 +611,7 @@ def test_batch_workflow_generates_localized_archive(
     assert ingest_payload["template"]["file_type"] == "docx"
     assert len(ingest_payload["template"]["sections"]) == 2
     assert chat_payload["llm_available"] is True
-    assert "Compliance onboarding workflow" in chat_payload["preview_markdown"]
+    assert "compliance onboarding workflow" in chat_payload["preview_markdown"].lower()
 
     archive_path = Path(export_payload["archive_path"])
     assert archive_path.exists()
@@ -744,6 +744,75 @@ def test_chat_falls_back_to_user_assignment_when_llm_returns_no_section_updates(
     payload = chat_response.json()
     assert payload["draft_state"]["sections"][0]["content"] == "Nuno Pereira"
     assert "Nuno Pereira" in payload["preview_markdown"]
+
+
+def test_plain_text_template_is_converted_to_markdown_for_preview(
+    monkeypatch: pytest.MonkeyPatch,
+    isolated_storage: Path,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(rag_service, "index_examples", lambda *args, **kwargs: [])
+
+    template_path = tmp_path / "input-template.txt"
+    template_path.write_text("Refinement Draft\n\nThis plain text document should appear in the preview pane.", encoding="utf-8")
+
+    with TestClient(app) as client:
+        with template_path.open("rb") as template_handle:
+            ingest_response = client.post(
+                "/ingest",
+                files={
+                    "template": (
+                        template_path.name,
+                        template_handle.read(),
+                        "text/plain",
+                    )
+                },
+            )
+
+    ingest_response.raise_for_status()
+    payload = ingest_response.json()
+    assert payload["template"]["file_type"] == "txt"
+    assert "Refinement Draft" in payload["preview_markdown"]
+    assert "This plain text document should appear in the preview pane." in payload["preview_markdown"]
+
+
+def test_markdown_existing_document_populates_matching_template_sections(
+    monkeypatch: pytest.MonkeyPatch,
+    sample_docx_template_path: Path,
+    isolated_storage: Path,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(rag_service, "index_examples", lambda *args, **kwargs: [])
+
+    existing_document_path = tmp_path / "existing-spec.md"
+    existing_document_path.write_text(
+        "## Project Overview\n\nExisting onboarding workflow ready for further enhancement.\n\n## Functional Requirements\n\nCapture an audit trail for every review decision.",
+        encoding="utf-8",
+    )
+
+    with TestClient(app) as client:
+        with sample_docx_template_path.open("rb") as template_handle, existing_document_path.open("rb") as enhancement_handle:
+            ingest_response = client.post(
+                "/ingest",
+                files={
+                    "template": (
+                        sample_docx_template_path.name,
+                        template_handle.read(),
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    ),
+                    "existing_document": (
+                        existing_document_path.name,
+                        enhancement_handle.read(),
+                        "text/markdown",
+                    ),
+                },
+            )
+
+    ingest_response.raise_for_status()
+    payload = ingest_response.json()
+    assert payload["draft_state"]["sections"][0]["content"] == "Existing onboarding workflow ready for further enhancement."
+    assert payload["draft_state"]["sections"][1]["content"] == "Capture an audit trail for every review decision."
+    assert "Existing onboarding workflow ready for further enhancement." in payload["preview_markdown"]
 
 
 def test_chat_can_append_new_section_when_llm_returns_a_new_title(

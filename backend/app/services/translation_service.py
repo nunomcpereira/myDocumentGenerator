@@ -18,14 +18,17 @@ from app.services.scenario_service import scenario_service
 
 try:
     from docx import Document as DocxDocument
+    from docx.shared import Inches as DocxInches
 except ImportError:  # pragma: no cover - optional dependency path
     DocxDocument = None
+    DocxInches = None
 
 try:
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import inch
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+    from reportlab.platypus import Image as RLImage, Paragraph, SimpleDocTemplate, Spacer
 except ImportError:  # pragma: no cover - optional dependency path
+    RLImage = None
     Paragraph = None
     ParagraphStyle = None
     SimpleDocTemplate = None
@@ -165,11 +168,13 @@ class TranslationService:
             template_section = template_sections.get(draft_section.section_id)
             title = translated_sections.get(f"{draft_section.section_id}::title") or draft_section.title
             content = translated_sections.get(f"{draft_section.section_id}::content") or translated_sections.get(draft_section.section_id) or draft_section.content
+            image_paths = session.enhancement_section_image_paths.get(draft_section.section_id, [])
             export_sections.append(
                 {
                     "title": title,
                     "content": content,
                     "level": max(1, min((template_section.level if template_section else 1), 9)),
+                    "image_paths": [p for p in image_paths if p.exists()],
                 }
             )
         return export_sections
@@ -179,6 +184,12 @@ class TranslationService:
         for section in sections:
             document.add_heading(section["title"], level=section["level"])
             self._append_docx_markdownish_content(document, section["content"])
+            for image_path in section.get("image_paths", []):
+                try:
+                    kwargs = {"width": DocxInches(5)} if DocxInches is not None else {}
+                    document.add_picture(str(image_path), **kwargs)
+                except Exception:
+                    pass
         document.save(str(target_path))
 
     def _append_docx_markdownish_content(self, document: DocxDocument, content: str) -> None:
@@ -190,15 +201,65 @@ class TranslationService:
             lines = [line.rstrip() for line in block.splitlines() if line.strip()]
             if not lines:
                 continue
+            # Markdown table: first line is |...|, second is |---|
+            if len(lines) >= 2 and re.match(r"^\|.+\|$", lines[0].strip()) and re.match(r"^\|[-| :]+\|$", lines[1].strip()):
+                self._append_docx_markdown_table(document, lines)
+                continue
             if all(line.lstrip().startswith(("- ", "* ")) for line in lines):
                 for line in lines:
-                    document.add_paragraph(line.lstrip()[2:].strip(), style="List Bullet")
+                    para = document.add_paragraph(style="List Bullet")
+                    self._add_inline_markdown_runs(para, line.lstrip()[2:].strip())
                 continue
             if all(re.match(r"\d+\.\s+", line.lstrip()) for line in lines):
                 for line in lines:
-                    document.add_paragraph(re.sub(r"^\d+\.\s+", "", line.lstrip()), style="List Number")
+                    para = document.add_paragraph(style="List Number")
+                    self._add_inline_markdown_runs(para, re.sub(r"^\d+\.\s+", "", line.lstrip()))
                 continue
-            document.add_paragraph("\n".join(lines))
+            para = document.add_paragraph()
+            self._add_inline_markdown_runs(para, "\n".join(lines))
+
+    @staticmethod
+    def _add_inline_markdown_runs(paragraph: Any, text: str) -> None:
+        """Add runs to a paragraph, parsing **bold** and *italic* inline markdown."""
+        token_pattern = re.compile(r"\*\*(.+?)\*\*|\*(.+?)\*|_(.+?)_")
+        last_end = 0
+        for match in token_pattern.finditer(text):
+            start, end = match.span()
+            if start > last_end:
+                paragraph.add_run(text[last_end:start])
+            if match.group(1) is not None:
+                paragraph.add_run(match.group(1)).bold = True
+            else:
+                paragraph.add_run(match.group(2) or match.group(3)).italic = True
+            last_end = end
+        if last_end < len(text):
+            paragraph.add_run(text[last_end:])
+
+    @staticmethod
+    def _append_docx_markdown_table(document: DocxDocument, lines: list[str]) -> None:
+        """Render a markdown table into a python-docx table."""
+        try:
+            header_cells = [cell.strip() for cell in lines[0].strip("|").split("|")]
+            data_rows = [
+                [cell.strip() for cell in line.strip("|").split("|")]
+                for line in lines[2:]
+                if line.strip() and not re.match(r"^\|[-| :]+\|$", line.strip())
+            ]
+            col_count = len(header_cells)
+            if col_count == 0:
+                return
+            table = document.add_table(rows=1 + len(data_rows), cols=col_count)
+            table.style = "Table Grid"
+            for i, cell_text in enumerate(header_cells[:col_count]):
+                cell = table.rows[0].cells[i]
+                cell.text = cell_text
+                for run in cell.paragraphs[0].runs:
+                    run.bold = True
+            for row_idx, data_row in enumerate(data_rows):
+                for col_idx, cell_text in enumerate(data_row[:col_count]):
+                    table.rows[row_idx + 1].cells[col_idx].text = cell_text
+        except Exception:
+            pass
 
     def _write_pdf_export(self, *, target_path: Path, sections: list[dict[str, Any]]) -> None:
         stylesheet = getSampleStyleSheet()
@@ -229,6 +290,18 @@ class TranslationService:
         for section in sections:
             story.append(Paragraph(xml_escape(section["title"]), heading_styles.get(section["level"], stylesheet["Heading3"])))
             story.extend(self._build_pdf_story_blocks(section["content"], body_style, bullet_style, number_style))
+            for image_path in section.get("image_paths", []):
+                try:
+                    img = RLImage(str(image_path))
+                    max_width = 4.5 * inch
+                    if img.drawWidth > max_width:
+                        scale = max_width / img.drawWidth
+                        img.drawWidth = max_width
+                        img.drawHeight = img.drawHeight * scale
+                    story.append(img)
+                    story.append(Spacer(1, 0.1 * inch))
+                except Exception:
+                    pass
             story.append(Spacer(1, 0.18 * inch))
 
         document = SimpleDocTemplate(
@@ -258,15 +331,24 @@ class TranslationService:
                 continue
             if all(line.lstrip().startswith(("- ", "* ")) for line in lines):
                 for line in lines:
-                    blocks.append(Paragraph(f"• {xml_escape(line.lstrip()[2:].strip())}", bullet_style))
+                    blocks.append(Paragraph(f"• {self._markdown_inline_to_rl(line.lstrip()[2:].strip())}", bullet_style))
                 continue
             if all(re.match(r"\d+\.\s+", line.lstrip()) for line in lines):
                 for line in lines:
-                    blocks.append(Paragraph(xml_escape(line.lstrip()), number_style))
+                    blocks.append(Paragraph(self._markdown_inline_to_rl(line.lstrip()), number_style))
                 continue
-            escaped = "<br/>".join(xml_escape(line) for line in lines)
+            escaped = "<br/>".join(self._markdown_inline_to_rl(line) for line in lines)
             blocks.append(Paragraph(escaped, body_style))
         return blocks
+
+    @staticmethod
+    def _markdown_inline_to_rl(text: str) -> str:
+        """Convert inline markdown (**bold**, *italic*) to ReportLab XML tags."""
+        escaped = xml_escape(text)
+        escaped = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escaped)
+        escaped = re.sub(r"\*(.+?)\*", r"<i>\1</i>", escaped)
+        escaped = re.sub(r"_(.+?)_", r"<i>\1</i>", escaped)
+        return escaped
 
     async def _translate_with_llm(
         self,

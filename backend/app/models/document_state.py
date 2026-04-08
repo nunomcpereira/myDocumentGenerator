@@ -20,7 +20,7 @@ class TemplateSection(BaseModel):
 
 class TemplateStructure(BaseModel):
     file_name: str
-    file_type: Literal["docx", "pdf"]
+    file_type: str
     sections: list[TemplateSection] = Field(default_factory=list)
     extracted_outline: list[str] = Field(default_factory=list)
 
@@ -45,6 +45,7 @@ class SessionContext(BaseModel):
     template_path: Path
     template_structure: TemplateStructure
     original_template_structure: TemplateStructure | None = None
+    source_preview_markdown: str | None = None
     draft_state: DocumentDraftState
     enhancement_document_path: Path | None = None
     enhancement_image_paths: list[Path] = Field(default_factory=list)

@@ -17,6 +17,7 @@ except ImportError:
 from app.core.config import get_settings
 from app.core.errors import UnsupportedTemplateError
 from app.models.document_state import DraftSectionState, DocumentDraftState, SessionContext, TemplateSection, TemplateStructure
+from app.services.markitdown_service import markitdown_service
 from app.services.rag_service import rag_service
 
 try:
@@ -30,6 +31,7 @@ class ImportedSection:
     title: str
     content: str
     image_paths: list[Path]
+    level: int = 1
 
 
 PDF_PAGE_NUMBER_PATTERN = re.compile(r"^page\s+\d+(?:\s+of\s+\d+)?$", flags=re.IGNORECASE)
@@ -89,12 +91,14 @@ class IngestionService:
             enhancement_document_path=enhancement_document_path,
         )
         warnings.extend(image_warnings)
+        source_preview_markdown = self.build_source_preview_markdown(enhancement_document_path or template_path)
 
         return SessionContext(
             session_id=session_id,
             template_path=template_path,
             template_structure=template_structure,
             original_template_structure=template_structure.model_copy(deep=True),
+            source_preview_markdown=source_preview_markdown,
             draft_state=draft_state,
             enhancement_document_path=enhancement_document_path,
             enhancement_image_paths=enhancement_image_paths,
@@ -145,6 +149,14 @@ class IngestionService:
         imported_sections = self._extract_existing_sections(source_path, image_output_dir=image_output_dir)
         warning_source = "enhancement document" if enhancement_document_path else "template"
         return self._build_section_image_mapping(template_structure, imported_sections, warning_source=warning_source)
+
+    def build_source_preview_markdown(self, source_path: Path | None) -> str | None:
+        if source_path is None:
+            return None
+        try:
+            return markitdown_service.convert_file(source_path).markdown or None
+        except Exception:
+            return None
 
     def _build_initial_draft_state(
         self,
@@ -278,7 +290,14 @@ class IngestionService:
             return sections
         if suffix == ".pdf":
             return self._extract_pdf_sections(file_path, image_output_dir=image_output_dir)
-        return []
+        try:
+            converted = markitdown_service.convert_file(file_path)
+        except Exception:
+            return []
+        return self._split_markdown_into_sections(
+            converted.markdown,
+            default_title=converted.title or self._default_imported_title(file_path),
+        )
 
     def _build_section_image_mapping(
         self,
@@ -345,7 +364,45 @@ class IngestionService:
             return self._parse_docx_template(template_path)
         if suffix == ".pdf":
             return self._parse_pdf_template(template_path)
-        raise UnsupportedTemplateError("Only .docx and .pdf templates are supported.")
+        return self._parse_markitdown_template(template_path)
+
+    def _parse_markitdown_template(self, template_path: Path) -> TemplateStructure:
+        try:
+            converted = markitdown_service.convert_file(template_path)
+        except Exception as exc:
+            raise UnsupportedTemplateError(
+                f"{template_path.name} could not be converted to markdown. Upload a file supported by MarkItDown or use a .docx/.pdf template."
+            ) from exc
+
+        sections = self._split_markdown_into_sections(
+            converted.markdown,
+            default_title=converted.title or self._default_imported_title(template_path),
+        )
+        if not sections:
+            sections = [
+                ImportedSection(
+                    title=converted.title or self._default_imported_title(template_path),
+                    content=converted.markdown,
+                    image_paths=[],
+                )
+            ]
+
+        file_type = template_path.suffix.lower().lstrip(".") or "generic"
+        outline = [section.title for section in sections]
+        return TemplateStructure(
+            file_name=template_path.name,
+            file_type=file_type,
+            sections=[
+                TemplateSection(
+                    id=f"section-{index}",
+                    title=section.title,
+                    level=section.level,
+                    source_excerpt=(section.content or section.title)[:1200],
+                )
+                for index, section in enumerate(sections, start=1)
+            ],
+            extracted_outline=outline,
+        )
 
     def _parse_docx_template(self, template_path: Path) -> TemplateStructure:
         if DocxDocument is None:
@@ -696,6 +753,13 @@ class IngestionService:
         return re.sub(r"^\d+(?:\.\d+){0,4}(?:[.)])?\s+", "", value).strip()
 
     def _read_example_text(self, file_path: Path) -> str:
+        try:
+            converted = markitdown_service.convert_file(file_path)
+            if converted.markdown:
+                return converted.markdown
+        except Exception:
+            pass
+
         suffix = file_path.suffix.lower()
         if suffix == ".pdf":
             reader = PdfReader(str(file_path))
@@ -704,6 +768,61 @@ class IngestionService:
             document = DocxDocument(str(file_path))
             return "\n".join(paragraph.text for paragraph in document.paragraphs if paragraph.text.strip()).strip()
         return file_path.read_text(encoding="utf-8", errors="ignore")
+
+    @staticmethod
+    def _default_imported_title(file_path: Path) -> str:
+        return file_path.stem.replace("_", " ").replace("-", " ").strip() or "Imported content"
+
+    @staticmethod
+    def _split_markdown_into_sections(markdown: str, *, default_title: str) -> list[ImportedSection]:
+        if not markdown.strip():
+            return []
+
+        sections: list[ImportedSection] = []
+        current_title: str | None = None
+        current_level = 1
+        current_lines: list[str] = []
+
+        def flush_current_section() -> None:
+            if current_title is None:
+                return
+            sections.append(
+                ImportedSection(
+                    title=current_title,
+                    content="\n".join(current_lines).strip(),
+                    image_paths=[],
+                    level=current_level,
+                )
+            )
+
+        for raw_line in markdown.splitlines():
+            line = raw_line.rstrip()
+            heading_match = re.match(r"^(#{1,6})\s+(.+?)\s*$", line)
+            if heading_match is not None:
+                flush_current_section()
+                current_title = heading_match.group(2).strip()
+                current_level = len(heading_match.group(1))
+                current_lines = []
+                continue
+
+            if current_title is None:
+                current_title = default_title
+                current_level = 1
+            current_lines.append(line)
+
+        flush_current_section()
+
+        normalized_sections = [
+            ImportedSection(
+                title=section.title,
+                content=section.content.strip(),
+                image_paths=section.image_paths,
+                level=section.level,
+            )
+            for section in sections
+            if section.title.strip() or section.content.strip()
+        ]
+        return normalized_sections
 
     @staticmethod
     def _extract_heading_level(style_name: str) -> int:

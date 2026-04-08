@@ -220,6 +220,7 @@ class ScenarioService:
             template_path=template_target,
             template_structure=template_structure,
             original_template_structure=ingestion_service._parse_template(template_target),
+            source_preview_markdown=ingestion_service.build_source_preview_markdown(enhancement_path or template_target),
             draft_state=draft_state,
             enhancement_document_path=enhancement_path,
             enhancement_image_paths=enhancement_image_paths,

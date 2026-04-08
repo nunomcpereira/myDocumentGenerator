@@ -9,7 +9,7 @@ export type TemplateSection = {
 
 export type TemplateStructure = {
   file_name: string;
-  file_type: "docx" | "pdf";
+  file_type: string;
   sections: TemplateSection[];
   extracted_outline: string[];
 };
