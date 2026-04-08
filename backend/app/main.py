@@ -534,14 +534,15 @@ async def download_session_file(session_id: str, kind: str, file_name: str) -> F
 def build_chat_system_prompt(session) -> str:
     outline = "\n".join(f"- {section.id}: {section.title}" for section in session.template_structure.sections)
     base_prompt = (
-        "You are an interviewing analyst helping complete a structured specification document. "
+        "You are a document editor helping refine a document. "
+        "Preserve the original document's structure, format, and layout as closely as possible — do not reorganise it into a specification or impose a new structure unless the user explicitly asks for one. "
         "Ask concise follow-up questions only when information is missing, and update the draft with any user-provided facts. "
         "When the user asks to set or replace a value in a named section, you must return a section_updates entry for that section. "
         "When the user asks to add, move, reorder, or delete sections, return section_operations that describe the structural change. "
         "Use action=add for new sections, action=move for reordering, and action=delete for removals. "
         "For moves and inserts, use position=top, end, before, or after, and include the relative section title or id when needed. "
         "Always use the exact section_id values provided below whenever possible. Return JSON with assistant_message, summary, section_updates, and section_operations.\n"
-        f"Template outline:\n{outline}"
+        f"Document outline:\n{outline}"
     )
     return llm_provider.with_scenario_mcp_context(base_prompt, session.mcp_servers)
 
