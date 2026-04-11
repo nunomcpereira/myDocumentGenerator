@@ -584,12 +584,18 @@ def format_prompt_sequence(prompt_sequence: list[str]) -> str | None:
 
 
 def render_preview_markdown(session) -> str:
-    if (
-        session.source_preview_markdown
-        and not any(section.content.strip() for section in session.draft_state.sections)
-        and not session.enhancement_section_image_paths
-    ):
-        return session.source_preview_markdown
+    has_draft_content = any(section.content.strip() for section in session.draft_state.sections)
+
+    if session.source_preview_markdown and not has_draft_content:
+        parts: list[str] = [session.source_preview_markdown.strip()]
+        for section in session.draft_state.sections:
+            section_images = session.enhancement_section_image_paths.get(section.section_id, [])
+            if not section_images:
+                continue
+            parts.append(f"## {section.title}")
+            for index, image_path in enumerate(section_images, start=1):
+                parts.append(f"![{section.title} image {index}](/sessions/{session.session_id}/files/enhancement_image/{image_path.name})")
+        return "\n\n".join(part for part in parts if part)
 
     parts: list[str] = []
     for section in session.draft_state.sections:

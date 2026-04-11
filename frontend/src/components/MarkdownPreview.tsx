@@ -19,7 +19,11 @@ function resolvePreviewUrl(url: string): string {
   return url;
 }
 
-export const MarkdownPreview = memo(function MarkdownPreview({ value, mode, onModeChange }: MarkdownPreviewProps) {
+export const MarkdownPreview = memo(function MarkdownPreview({
+  value,
+  mode,
+  onModeChange,
+}: MarkdownPreviewProps) {
   const fallbackValue = value || "# Draft preview\n\nInitialize a template to start building the projected specification.";
 
   return (

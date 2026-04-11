@@ -90,6 +90,35 @@ def test_pdf_enhancement_document_aligns_content_by_heading(monkeypatch, tmp_pat
     assert draft_state.sections[2].content == "Approved by QA"
 
 
+def test_clean_pdf_preview_markdown_removes_rotated_margin_artifacts() -> None:
+    markdown = (
+        "Documento emitido a: 11 de dezembro 2024\n"
+        "A B C D\n"
+        "a o b s i L 0 0 3\n"
+        "9 4 2 1 2 1 º . n\n"
+        "\n"
+        "a\n"
+        "o\n"
+        "b\n"
+        "s\n"
+        "i\n"
+        "L\n"
+        "0\n"
+        "0\n"
+        "3\n"
+        "\n"
+        "Quanto tenho a pagar? 39,01 €\n"
+    )
+
+    cleaned = ingestion_service._clean_pdf_preview_markdown(markdown)
+
+    assert "Documento emitido a: 11 de dezembro 2024" in cleaned
+    assert "A B C D" in cleaned
+    assert "Quanto tenho a pagar? 39,01 €" in cleaned
+    assert "a o b s i L 0 0 3" not in cleaned
+    assert "9 4 2 1 2 1 º . n" not in cleaned
+
+
 def test_attached_ferring_pdf_extracts_expected_sections_and_text() -> None:
     pdf_path = Path("/Users/nuno/Downloads/ferringdocsample/techdocs/I-44722 - M2C - Price Catalog Interface Requirements and Specifications.pdf")
     if not pdf_path.exists():

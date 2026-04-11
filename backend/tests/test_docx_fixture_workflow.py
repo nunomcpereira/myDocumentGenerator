@@ -15,6 +15,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from app.main import app
 from app.main import render_preview_markdown
+from app.models.document_state import DocumentDraftState, DraftSectionState, SessionContext, TemplateSection, TemplateStructure
 from app.services.session_store import session_store
 from app.services.llm_provider import llm_provider
 from app.services.rag_service import rag_service
@@ -204,3 +205,28 @@ def test_template_docx_images_are_reflected_in_preview_when_no_existing_document
     session = session_store.get(payload["session_id"])
     rendered_preview = render_preview_markdown(session)
     assert "/files/enhancement_image/" in rendered_preview
+
+
+def test_render_preview_preserves_source_markdown_when_only_images_are_mapped() -> None:
+    image_path = Path("/tmp/imported-preview-image.png")
+    session = SessionContext(
+        session_id="preview-session",
+        template_path=Path("/tmp/template.pdf"),
+        template_structure=TemplateStructure(
+            file_name="template.pdf",
+            file_type="pdf",
+            sections=[TemplateSection(id="section-1", title="Imported content")],
+        ),
+        source_preview_markdown="# Imported PDF\n\nThis paragraph came from the uploaded PDF.",
+        draft_state=DocumentDraftState(
+            session_id="preview-session",
+            sections=[DraftSectionState(section_id="section-1", title="Imported content")],
+        ),
+        enhancement_image_paths=[image_path],
+        enhancement_section_image_paths={"section-1": [image_path]},
+    )
+
+    rendered_preview = render_preview_markdown(session)
+
+    assert "This paragraph came from the uploaded PDF." in rendered_preview
+    assert "/files/enhancement_image/imported-preview-image.png" in rendered_preview

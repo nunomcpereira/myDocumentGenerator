@@ -209,7 +209,11 @@ export function RefinementScreen({ snapshot, mcpCatalog, onSelectedMcpServersCha
           onReplayPromptSequence={handleReplayPromptSequence}
           onSend={handleSend}
         />
-        <MarkdownPreview value={deferredPreviewMarkdown} mode={previewMode} onModeChange={setPreviewMode} />
+        <MarkdownPreview
+          value={deferredPreviewMarkdown}
+          mode={previewMode}
+          onModeChange={setPreviewMode}
+        />
       </div>
     </div>
   );

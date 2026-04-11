@@ -134,9 +134,14 @@ class IngestionService:
         if source_path is None:
             return None
         try:
-            return markitdown_service.convert_file(source_path).markdown or None
+            markdown = markitdown_service.convert_file(source_path).markdown or None
         except Exception:
             return None
+        if markdown is None:
+            return None
+        if source_path.suffix.lower() == ".pdf":
+            return self._clean_pdf_preview_markdown(markdown) or None
+        return markdown
 
     def _build_initial_draft_state(
         self,
@@ -508,6 +513,63 @@ class IngestionService:
     @staticmethod
     def _default_imported_title(file_path: Path) -> str:
         return file_path.stem.replace("_", " ").replace("-", " ").strip() or "Imported content"
+
+    @staticmethod
+    def _clean_pdf_preview_markdown(markdown: str) -> str:
+        lines = markdown.splitlines()
+        cleaned_lines: list[str] = []
+        index = 0
+
+        while index < len(lines):
+            line = lines[index]
+            stripped = line.strip()
+            if not stripped:
+                cleaned_lines.append("")
+                index += 1
+                continue
+
+            if IngestionService._is_single_character_line(stripped):
+                block_end = index
+                single_character_count = 0
+                while block_end < len(lines):
+                    candidate = lines[block_end].strip()
+                    if not candidate:
+                        block_end += 1
+                        continue
+                    if not IngestionService._is_single_character_line(candidate):
+                        break
+                    single_character_count += 1
+                    block_end += 1
+                if single_character_count >= 4:
+                    index = block_end
+                    continue
+
+            if IngestionService._is_spaced_single_character_line(stripped):
+                index += 1
+                continue
+
+            cleaned_lines.append(line)
+            index += 1
+
+        # Collapse repeated blank lines introduced by cleanup.
+        normalized_lines: list[str] = []
+        previous_blank = False
+        for line in cleaned_lines:
+            is_blank = not line.strip()
+            if is_blank and previous_blank:
+                continue
+            normalized_lines.append(line)
+            previous_blank = is_blank
+        return "\n".join(normalized_lines).strip()
+
+    @staticmethod
+    def _is_single_character_line(value: str) -> bool:
+        return len(value) == 1
+
+    @staticmethod
+    def _is_spaced_single_character_line(value: str) -> bool:
+        tokens = value.split()
+        return len(tokens) >= 6 and all(len(token) == 1 for token in tokens)
 
     @staticmethod
     def _split_markdown_into_sections(markdown: str, *, default_title: str) -> list[ImportedSection]:
