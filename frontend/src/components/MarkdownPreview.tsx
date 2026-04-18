@@ -27,16 +27,16 @@ export const MarkdownPreview = memo(function MarkdownPreview({
   const fallbackValue = value || "# Draft preview\n\nInitialize a template to start building the projected specification.";
 
   return (
-    <section className="panel-surface flex h-full max-h-[68vh] flex-col overflow-hidden rounded-[2rem] border border-white/70 bg-[#fffdf8]/90 p-6 shadow-panel xl:max-h-[74vh]">
-      <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+    <section className="flex flex-col h-full bg-white rounded-[2rem] border border-ui-outline-soft shadow-premium overflow-hidden">
+      <div className="p-6 border-b border-ui-outline-soft flex items-center justify-between bg-surface-muted/30">
         <div>
-        <p className="text-xs uppercase tracking-[0.24em] text-steel">Projected spec</p>
-          <h2 className="font-serif text-2xl text-ink">Live preview</h2>
+          <h2 className="font-headline text-lg font-bold text-ink">Projected Specification</h2>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-steel-muted">Live Document Preview</p>
         </div>
-        <div className="inline-flex rounded-full border border-stone-300 bg-white p-1 shadow-sm">
+        <div className="inline-flex p-1 bg-white rounded-xl border border-ui-outline-soft shadow-sm">
           {[
-            { id: "html", label: "HTML" },
-            { id: "markdown", label: "Markdown" },
+            { id: "html", label: "Preview" },
+            { id: "markdown", label: "Source" },
           ].map((option) => {
             const active = mode === option.id;
             return (
@@ -45,10 +45,9 @@ export const MarkdownPreview = memo(function MarkdownPreview({
                 type="button"
                 onClick={() => onModeChange(option.id as "html" | "markdown")}
                 className={[
-                  "rounded-full px-4 py-2 text-sm font-semibold transition",
-                  active ? "bg-ink text-sand" : "text-steel hover:text-ink",
+                  "px-4 py-1.5 rounded-lg text-xs font-bold transition-all",
+                  active ? "bg-primary text-white shadow-sm" : "text-steel-muted hover:text-ink",
                 ].join(" ")}
-                aria-pressed={active}
               >
                 {option.label}
               </button>
@@ -57,17 +56,28 @@ export const MarkdownPreview = memo(function MarkdownPreview({
         </div>
       </div>
 
-      {mode === "html" ? (
-        <div className="markdown-preview prose prose-stone max-w-none flex-1 overflow-y-auto pr-2">
-          <ReactMarkdown
-            urlTransform={(url) => resolvePreviewUrl(url)}
-          >
-            {fallbackValue}
-          </ReactMarkdown>
+      <div className="flex-1 overflow-hidden flex flex-col bg-surface-dark/30 p-8">
+        <div className="flex-1 bg-white shadow-2xl rounded-sm border border-ui-outline-soft/50 overflow-y-auto custom-scrollbar relative">
+          {/* Paper Texture Overlay */}
+          <div className="absolute inset-0 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/natural-paper.png')] opacity-[0.03]" />
+          
+          <div className="relative z-10 p-12 min-h-full">
+            {mode === "html" ? (
+              <div className="markdown-content">
+                <ReactMarkdown
+                  urlTransform={(url) => resolvePreviewUrl(url)}
+                >
+                  {fallbackValue}
+                </ReactMarkdown>
+              </div>
+            ) : (
+              <pre className="font-mono text-xs leading-relaxed text-steel bg-surface-muted p-6 rounded-xl border border-ui-outline-soft whitespace-pre-wrap">
+                {fallbackValue}
+              </pre>
+            )}
+          </div>
         </div>
-      ) : (
-        <pre className="flex-1 overflow-y-auto rounded-[1.5rem] border border-stone-200 bg-white/80 p-5 font-mono text-sm leading-6 text-ink">{fallbackValue}</pre>
-      )}
+      </div>
     </section>
   );
 });

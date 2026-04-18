@@ -1,4 +1,4 @@
-import { BotMessageSquare, MoonStar, Save, Settings2, SunMedium } from "lucide-react";
+import { BotMessageSquare, Save, Settings2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 
@@ -27,9 +27,6 @@ const initialSnapshot: SessionSnapshot = {
   warnings: [],
 };
 
-type ThemeMode = "light" | "dark";
-
-const themeStorageKey = "documentation-engine-theme";
 
 function RefinementRoute({
   snapshot,
@@ -77,10 +74,6 @@ function ExportRoute({ snapshot, onSnapshotChange }: { snapshot: SessionSnapshot
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [theme, setTheme] = useState<ThemeMode>(() => {
-    const storedTheme = window.localStorage.getItem(themeStorageKey);
-    return storedTheme === "dark" ? "dark" : "light";
-  });
   const [snapshot, setSnapshot] = useState<SessionSnapshot>(() => {
     const raw = window.sessionStorage.getItem("documentation-engine-session");
     if (!raw) {
@@ -128,12 +121,6 @@ export default function App() {
     void loadCustomCssTheme();
     void refreshMcpCatalog();
   }, []);
-
-  useEffect(() => {
-    document.body.classList.toggle("theme-dark", theme === "dark");
-    document.body.classList.toggle("theme-light", theme === "light");
-    window.localStorage.setItem(themeStorageKey, theme);
-  }, [theme]);
 
   useEffect(() => {
     window.sessionStorage.setItem("documentation-engine-session", JSON.stringify(snapshot));
@@ -308,112 +295,132 @@ export default function App() {
           : 0;
 
   return (
-    <div data-testid="app-shell" data-theme={theme} className="mx-auto min-h-screen max-w-[1480px] px-4 py-6 sm:px-6 lg:px-10">
-      <header className="mb-8 flex flex-col gap-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="inline-flex items-center gap-3 rounded-full border border-white/70 bg-white/75 px-4 py-2 shadow-panel backdrop-blur">
-            <BotMessageSquare className="h-4 w-4 text-ember" />
-            <span className="text-sm text-ink">Documentation Generation & Localization Engine</span>
+    <div data-testid="app-shell" className="relative min-h-screen selection:bg-primary/10 selection:text-primary">
+      <div className="mesh-bg" aria-hidden="true" />
+      
+      <div className="mx-auto max-w-[1480px] px-4 py-8 sm:px-6 lg:px-10">
+        <header className="mb-10 flex flex-col gap-6 animate-slide-down">
+          <div className="flex flex-wrap items-center justify-between gap-4 glass-panel rounded-3xl p-4 shadow-xl">
+            <div className="flex items-center gap-3 px-2">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-accent shadow-glow text-white">
+                <BotMessageSquare className="h-5 w-5" />
+              </div>
+              <div>
+                <h1 className="text-lg font-bold text-ink leading-tight">Documentation Engine</h1>
+                <p className="text-xs font-medium text-steel-muted">AI-Powered Generation & Localization</p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <ProgressStepper currentStep={currentStep} sessionId={snapshot.sessionId} />
+              
+              <div className="h-8 w-px bg-ui-outline-soft hidden sm:block mx-1" />
+              
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleOpenConfiguration()}
+                  className="btn-secondary !px-3 !py-2 flex items-center gap-2 text-xs"
+                >
+                  <Settings2 className="h-3.5 w-3.5" />
+                  <span className="hidden md:inline">Configuration</span>
+                </button>
+                {snapshot.sessionId ? (
+                  <button
+                    type="button"
+                    onClick={() => setSaveScenarioOpen((current) => !current)}
+                    className={[
+                      "btn-primary !px-3 !py-2 flex items-center gap-2 text-xs transition-all",
+                      saveScenarioOpen
+                        ? "bg-accent hover:bg-accent-light shadow-glow-accent"
+                        : "",
+                    ].join(" ")}
+                  >
+                    <Save className="h-3.5 w-3.5" />
+                    <span className="hidden md:inline">{saveScenarioOpen ? "Hide save" : "Save scenario"}</span>
+                  </button>
+                ) : null}
+              </div>
+            </div>
           </div>
-        </div>
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <ProgressStepper currentStep={currentStep} sessionId={snapshot.sessionId} />
-          <div className="flex flex-wrap items-center gap-3 xl:justify-end">
-            <button
-              type="button"
-              onClick={() => setTheme((current) => (current === "light" ? "dark" : "light"))}
-              className="ui-toolbar-button inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-ink shadow-panel backdrop-blur transition hover:border-ember"
-              aria-label={theme === "light" ? "Switch to dark theme" : "Switch to white theme"}
-            >
-              {theme === "light" ? <MoonStar className="h-4 w-4" /> : <SunMedium className="h-4 w-4" />}
-              {theme === "light" ? "Dark theme" : "White theme"}
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleOpenConfiguration()}
-              className="ui-toolbar-button inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-ink shadow-panel backdrop-blur transition hover:border-ember"
-            >
-              <Settings2 className="h-4 w-4" />
-              Configuration
-            </button>
-            {snapshot.sessionId ? (
-              <button
-                type="button"
-                onClick={() => setSaveScenarioOpen((current) => !current)}
-                className="ui-toolbar-button inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-ink shadow-panel backdrop-blur transition hover:border-ember"
-              >
-                <Save className="h-4 w-4" />
-                {saveScenarioOpen ? "Hide save scenario" : "Save scenario"}
-              </button>
-            ) : null}
+        </header>
+
+        <main className="relative z-10">
+          {snapshot.sessionId && saveScenarioOpen ? (
+            <div className="mb-8 animate-slide-up">
+              <div className="glass-panel rounded-3xl p-1 overflow-hidden">
+                <ScenarioControls
+                  scenarios={scenarios}
+                  scenarioId={snapshot.scenarioId}
+                  onScenarioIdChange={(scenarioId) => setSnapshot((current) => ({ ...current, scenarioId }))}
+                  onLoad={handleLoadScenario}
+                  onSave={handleSaveScenario}
+                  busy={scenarioBusy}
+                  canSave={Boolean(snapshot.sessionId)}
+                  mode="save-only"
+                  title="Save Environment"
+                  description="Capture current configuration as a reusable scenario."
+                />
+              </div>
+            </div>
+          ) : null}
+
+          {snapshot.warnings.length > 0 ? (
+            <div className="mb-8 animate-slide-up rounded-2xl border border-warning-light/30 bg-warning-light/10 px-6 py-4 text-sm text-warning-dark backdrop-blur-sm shadow-premium">
+              <div className="flex items-start gap-3">
+                <div className="mt-1 h-2 w-2 shrink-0 rounded-full bg-warning animate-pulse" />
+                <div className="space-y-1">
+                  {snapshot.warnings.map((warning) => (
+                    <p key={warning} className="font-medium">{warning}</p>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="animate-fade-in animate-delay-200">
+            <Routes>
+              <Route
+                path="/"
+                element={
+                  <WizardScreen
+                    scenarios={scenarios}
+                    scenarioId={snapshot.scenarioId}
+                    onScenarioIdChange={(scenarioId) => setSnapshot((current) => ({ ...current, scenarioId }))}
+                    onLoadScenario={handleLoadScenario}
+                    onStartFromScratch={() => navigate("/ingest")}
+                    scenarioBusy={scenarioBusy}
+                  />
+                }
+              />
+              <Route
+                path="/ingest"
+                element={
+                  <IngestionScreen
+                    onInitialized={(nextSnapshot) => {
+                      setSnapshot(nextSnapshot);
+                      navigate(`/refine/${nextSnapshot.sessionId}`);
+                    }}
+                  />
+                }
+              />
+              <Route
+                path="/refine/:sessionId"
+                element={(
+                  <RefinementRoute
+                    snapshot={snapshot}
+                    mcpCatalog={mcpCatalog}
+                    onSelectedMcpServersChange={(mcpServers) => setSnapshot((current) => ({ ...current, mcpServers }))}
+                    onSnapshotChange={setSnapshot}
+                  />
+                )}
+              />
+              <Route path="/export/:sessionId" element={<ExportRoute snapshot={snapshot} onSnapshotChange={setSnapshot} />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
           </div>
-        </div>
-      </header>
-
-      {snapshot.sessionId && saveScenarioOpen ? (
-        <div className="mb-6">
-          <ScenarioControls
-            scenarios={scenarios}
-            scenarioId={snapshot.scenarioId}
-            onScenarioIdChange={(scenarioId) => setSnapshot((current) => ({ ...current, scenarioId }))}
-            onLoad={handleLoadScenario}
-            onSave={handleSaveScenario}
-            busy={scenarioBusy}
-            canSave={Boolean(snapshot.sessionId)}
-            mode="save-only"
-            title="Save the current scenario"
-            description="Capture the template, enhancement document, examples, draft state, and export settings under a reusable scenario ID."
-          />
-        </div>
-      ) : null}
-
-      {snapshot.warnings.length > 0 ? (
-        <div className="mb-6 rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">
-          {snapshot.warnings.map((warning) => (
-            <p key={warning}>{warning}</p>
-          ))}
-        </div>
-      ) : null}
-
-      <Routes>
-        <Route
-          path="/"
-          element={
-            <WizardScreen
-              scenarios={scenarios}
-              scenarioId={snapshot.scenarioId}
-              onScenarioIdChange={(scenarioId) => setSnapshot((current) => ({ ...current, scenarioId }))}
-              onLoadScenario={handleLoadScenario}
-              onStartFromScratch={() => navigate("/ingest")}
-              scenarioBusy={scenarioBusy}
-            />
-          }
-        />
-        <Route
-          path="/ingest"
-          element={
-            <IngestionScreen
-              onInitialized={(nextSnapshot) => {
-                setSnapshot(nextSnapshot);
-                navigate(`/refine/${nextSnapshot.sessionId}`);
-              }}
-            />
-          }
-        />
-        <Route
-          path="/refine/:sessionId"
-          element={(
-            <RefinementRoute
-              snapshot={snapshot}
-              mcpCatalog={mcpCatalog}
-              onSelectedMcpServersChange={(mcpServers) => setSnapshot((current) => ({ ...current, mcpServers }))}
-              onSnapshotChange={setSnapshot}
-            />
-          )}
-        />
-        <Route path="/export/:sessionId" element={<ExportRoute snapshot={snapshot} onSnapshotChange={setSnapshot} />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+        </main>
+      </div>
 
       <TranslationConfigurationDialog
         open={configurationOpen}

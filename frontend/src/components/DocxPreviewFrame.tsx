@@ -133,20 +133,20 @@ export const DocxPreviewFrame = memo(function DocxPreviewFrame({ previewUrl, tem
   }, [frameReady, previewUrl, unsupportedMessage]);
 
   return (
-    <section className="panel-surface flex h-full max-h-[68vh] flex-col overflow-hidden rounded-[2rem] border border-white/70 bg-[#fffdf8]/90 p-6 shadow-panel xl:max-h-[74vh]">
+    <section className="panel-surface flex h-full max-h-[68vh] flex-col overflow-hidden rounded-xl border border-outline-variant bg-white p-6 shadow-panel xl:max-h-[74vh]">
       <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs uppercase tracking-[0.24em] text-steel">Projected spec</p>
-          <h2 className="font-serif text-2xl text-ink">Live DOCX preview</h2>
+          <h2 className="font-headline text-2xl text-ink">Live DOCX preview</h2>
         </div>
       </div>
 
       {unsupportedMessage ? (
-        <div className="flex flex-1 items-center justify-center rounded-[1.5rem] border border-dashed border-stone-300 bg-white/70 px-6 text-center text-sm leading-7 text-steel">
+        <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-outline-variant bg-white px-6 text-center text-sm leading-7 text-steel">
           {unsupportedMessage}
         </div>
       ) : (
-        <div className="docx-preview-shell relative flex-1 overflow-hidden rounded-[1.5rem] border border-stone-200 bg-[#f4ede0]">
+        <div className="docx-preview-shell relative flex-1 overflow-hidden rounded-xl border border-outline-variant bg-surface-container-low">
           <iframe
             ref={iframeRef}
             title="Live DOCX preview"
@@ -156,8 +156,8 @@ export const DocxPreviewFrame = memo(function DocxPreviewFrame({ previewUrl, tem
           />
 
           {loading ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-[#f4ede0]/85 backdrop-blur-[2px]">
-              <div className="inline-flex items-center gap-3 rounded-full border border-stone-300 bg-white/90 px-5 py-3 text-sm font-medium text-ink shadow-sm">
+            <div className="absolute inset-0 flex items-center justify-center bg-surface-container-low/80">
+              <div className="inline-flex items-center gap-3 rounded-xl border border-outline-variant bg-white px-5 py-3 text-sm font-medium text-ink shadow-panel">
                 <LoaderCircle className="h-4 w-4 animate-spin" />
                 Updating DOCX preview
               </div>
@@ -165,7 +165,7 @@ export const DocxPreviewFrame = memo(function DocxPreviewFrame({ previewUrl, tem
           ) : null}
 
           {error ? (
-            <div className="absolute inset-x-4 bottom-4 rounded-2xl border border-rose-200 bg-white/95 px-4 py-3 text-sm text-rose-700 shadow-sm">
+            <div className="absolute inset-x-4 bottom-4 rounded-2xl border border-rose-200 bg-white px-4 py-3 text-sm text-rose-700 shadow-sm">
               <div className="flex items-start gap-3">
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>{error}</span>

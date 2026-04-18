@@ -25,24 +25,31 @@ function CollapsibleSection({ eyebrow, title, description, children }: Collapsib
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <section className="rounded-[1.75rem] border border-stone-200 bg-white/90 shadow-panel">
+    <section className="premium-card rounded-[2rem] overflow-hidden">
       <button
         type="button"
         onClick={() => setExpanded((current) => !current)}
-        className="flex w-full items-start justify-between gap-4 px-5 py-5 text-left sm:px-6"
+        className="flex w-full items-start justify-between gap-6 p-8 text-left transition-colors hover:bg-surface-muted/30"
         aria-expanded={expanded}
       >
-        <div>
-          <div className="text-[11px] uppercase tracking-[0.22em] text-steel">{eyebrow}</div>
-          <h3 className="mt-2 font-serif text-2xl text-ink">{title}</h3>
-          <p className="mt-2 max-w-2xl text-sm leading-7 text-steel">{description}</p>
+        <div className="flex-1">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-primary mb-2">{eyebrow}</div>
+          <h3 className="font-headline text-2xl font-bold text-ink mb-2">{title}</h3>
+          <p className="text-sm leading-relaxed text-steel max-w-2xl">{description}</p>
         </div>
-        <span className="mt-1 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-stone-200 bg-sand text-ink">
-          <ChevronDown className={["h-4 w-4 transition-transform duration-200", expanded ? "rotate-180" : "rotate-0"].join(" ")} />
-        </span>
+        <div className={[
+          "flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-ui-outline-soft transition-all duration-300",
+          expanded ? "bg-primary text-white border-primary shadow-glow rotate-180" : "bg-white text-steel hover:border-primary/30"
+        ].join(" ")}>
+          <ChevronDown className="h-5 w-5" />
+        </div>
       </button>
 
-      {expanded ? <div className="border-t border-stone-200 px-5 py-5 sm:px-6">{children}</div> : null}
+      {expanded ? (
+        <div className="border-t border-ui-outline-soft bg-surface-muted/10 p-8 animate-slide-down">
+          {children}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -64,233 +71,201 @@ export function TranslationConfigurationDialog({
   const configuredOptions = configuration?.options.filter((option) => option.configured).length ?? 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/45 px-4 py-8 backdrop-blur-sm">
-      <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-[2rem] border border-white/70 bg-[#fffaf5] p-6 shadow-[0_30px_80px_rgba(17,19,26,0.3)] sm:p-8">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white px-3 py-1 text-xs uppercase tracking-[0.22em] text-steel">
-              <Settings2 className="h-4 w-4" />
-              Workspace configuration
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm px-4 py-8 animate-fade-in">
+      <div className="max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-[2.5rem] border border-ui-outline-soft bg-white shadow-2xl flex flex-col animate-scale-in">
+        <header className="p-8 border-b border-ui-outline-soft flex items-start justify-between bg-surface-muted/30">
+          <div className="flex-1">
+            <div className="inline-flex items-center gap-2 bg-primary/10 px-3 py-1 rounded-full mb-4">
+              <Settings2 className="h-3.5 w-3.5 text-primary" />
+              <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Workspace Environment</p>
             </div>
-            <h2 className="mt-4 font-serif text-3xl text-ink">Configure translation and UI theming</h2>
-            <p className="mt-3 max-w-2xl text-sm leading-7 text-steel">
-              This panel controls the translation provider and any custom UI stylesheet. The details are grouped below so you can inspect only the section you need.
+            <h2 className="font-headline text-3xl font-bold text-ink mb-2 tracking-tight">System Configuration</h2>
+            <p className="text-sm leading-relaxed text-steel max-w-2xl">
+              Manage core engine settings, translation providers, and UI theming. Changes to providers may require a backend restart.
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-stone-200 bg-white text-ink transition hover:border-ember"
-            aria-label="Close translation configuration"
+            className="h-12 w-12 flex items-center justify-center rounded-2xl bg-white border border-ui-outline-soft text-steel hover:text-danger hover:border-danger/30 transition-all shadow-sm"
           >
-            <X className="h-4 w-4" />
+            <X className="h-5 w-5" />
           </button>
-        </div>
+        </header>
 
-        <section className="mt-6 rounded-[1.75rem] border border-stone-200 bg-white/90 p-5 shadow-panel">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.22em] text-steel">Quick status</p>
-              <h3 className="mt-2 font-serif text-2xl text-ink">Current configuration at a glance</h3>
-              <p className="mt-2 text-sm leading-7 text-steel">Refresh the backend snapshot, then expand only the sections you want to inspect or change.</p>
+        <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
+          <section className="premium-card bg-slate-900 text-white p-8 rounded-[2rem] relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-8 opacity-10">
+              <Settings2 className="h-40 w-40 -mr-10 -mt-10" />
             </div>
-
-            <button
-              type="button"
-              onClick={onRefresh}
-              disabled={loading}
-              className="inline-flex items-center justify-center gap-2 rounded-full bg-ink px-4 py-3 text-sm font-semibold text-sand transition hover:bg-[#1e2230] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {loading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Settings2 className="h-4 w-4" />}
-              Refresh backend config
-            </button>
-          </div>
-
-          {configuration ? (
-            <div className="mt-5 grid gap-3 md:grid-cols-3">
-              <div className="rounded-[1.25rem] bg-sand px-4 py-4 text-sm text-ink">
-                <p className="text-[11px] uppercase tracking-[0.2em] text-steel">Active provider</p>
-                <p className="mt-2 text-lg font-semibold uppercase">{configuration.active_provider}</p>
-              </div>
-              <div className="rounded-[1.25rem] bg-sand px-4 py-4 text-sm text-ink">
-                <p className="text-[11px] uppercase tracking-[0.2em] text-steel">Configured providers</p>
-                <p className="mt-2 text-lg font-semibold">{configuredOptions} of {configuration.options.length}</p>
-              </div>
-              <div className="rounded-[1.25rem] bg-sand px-4 py-4 text-sm text-ink">
-                <p className="text-[11px] uppercase tracking-[0.2em] text-steel">Custom CSS</p>
-                <p className="mt-2 text-lg font-semibold">{configuration.custom_css.enabled ? "Enabled" : "Not uploaded"}</p>
-              </div>
-            </div>
-          ) : null}
-        </section>
-
-        {error ? <p className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
-
-        {configuration ? (
-          <div className="mt-6 space-y-4">
-            <CollapsibleSection
-              eyebrow="Section 1"
-              title="Current setup"
-              description="See which translator is active, where the settings are loaded from, and whether a restart is expected."
-            >
-              <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-                <div className="rounded-[1.5rem] bg-[#1a212a] p-5 text-sand">
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-sand/60">Active translator</p>
-                  <h4 className="mt-3 font-serif text-3xl uppercase">{configuration.active_provider}</h4>
-                  <p className="mt-3 text-sm leading-7 text-sand/80">
-                    The backend will use this provider for section title and body translation until the configuration source changes and the service is restarted if required.
-                  </p>
-                </div>
-
-                <div className="grid gap-3">
-                  <div className="rounded-[1.5rem] bg-sand px-4 py-4 text-sm text-ink">
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-steel">Configuration source</p>
-                    <p className="mt-2 font-semibold">{configuration.source}</p>
-                  </div>
-                  <div className="rounded-[1.5rem] bg-sand px-4 py-4 text-sm text-ink">
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-steel">Restart required</p>
-                    <p className="mt-2 font-semibold">{configuration.restart_required ? "Yes" : "No"}</p>
-                  </div>
-                  <div className="rounded-[1.5rem] bg-sand px-4 py-4 text-sm text-ink">
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-steel">Provider readiness</p>
-                    <p className="mt-2 font-semibold">{configuredOptions} configured, {configuration.options.length - configuredOptions} incomplete</p>
-                  </div>
-                </div>
-              </div>
-            </CollapsibleSection>
-
-            <CollapsibleSection
-              eyebrow="Section 2"
-              title="Translation providers"
-              description="Review the available translators, their purpose, and the environment variables each one requires."
-            >
-              <div className="grid gap-4 lg:grid-cols-3">
-                {configuration.options.map((option) => {
-                  const active = option.id === configuration.active_provider;
-                  return (
-                    <section
-                      key={option.id}
-                      className={[
-                        "rounded-[1.5rem] border p-5",
-                        active ? "border-ink bg-[#1a212a] text-sand" : "border-stone-200 bg-[#fffaf5] text-ink",
-                      ].join(" ")}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className={["text-[11px] uppercase tracking-[0.2em]", active ? "text-sand/60" : "text-steel"].join(" ")}>
-                            {active ? "Currently active" : "Available option"}
-                          </p>
-                          <h4 className="mt-2 font-serif text-2xl">{option.label}</h4>
-                        </div>
-                        <span
-                          className={[
-                            "rounded-full px-3 py-1 text-xs uppercase tracking-[0.18em]",
-                            option.configured
-                              ? active
-                                ? "bg-white/10 text-sand"
-                                : "bg-emerald-50 text-emerald-700"
-                              : active
-                                ? "bg-amber-200/20 text-amber-100"
-                                : "bg-amber-50 text-amber-700",
-                          ].join(" ")}
-                        >
-                          {option.configured ? "Configured" : "Missing env"}
-                        </span>
-                      </div>
-                      <p className={["mt-3 text-sm leading-7", active ? "text-sand/80" : "text-steel"].join(" ")}>{option.description}</p>
-                      <div className="mt-5">
-                        <p className={["text-xs uppercase tracking-[0.2em]", active ? "text-sand/60" : "text-steel"].join(" ")}>Required .env keys</p>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {option.required_env.map((envName) => (
-                            <span
-                              key={envName}
-                              className={[
-                                "rounded-full px-3 py-1 text-xs",
-                                active ? "border border-white/10 bg-white/5 text-sand" : "bg-sand text-ink",
-                              ].join(" ")}
-                            >
-                              {envName}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    </section>
-                  );
-                })}
-              </div>
-            </CollapsibleSection>
-          </div>
-        ) : null}
-
-        <div className="mt-6 space-y-4">
-          <CollapsibleSection
-            eyebrow="Section 3"
-            title="Custom stylesheet override"
-            description="Upload a CSS file to restyle the UI immediately, or remove the existing override if you want to fall back to the default theme."
-          >
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="rounded-[1.5rem] bg-sand px-4 py-4 text-sm text-ink">
-                <p className="text-[11px] uppercase tracking-[0.2em] text-steel">Current stylesheet</p>
-                <p className="mt-2 font-semibold">
-                  {configuration?.custom_css.enabled
-                    ? configuration.custom_css.file_name ?? "custom.css"
-                    : "No custom CSS uploaded"}
-                </p>
-                {configuration?.custom_css.updated_at ? (
-                  <p className="mt-2 text-steel">Last updated: {new Date(configuration.custom_css.updated_at).toLocaleString()}</p>
-                ) : null}
+            
+            <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-8">
+              <div>
+                <h3 className="font-headline text-2xl font-bold mb-2">Live Snapshot</h3>
+                <p className="text-slate-400 text-sm">Real-time status of the documentation engine backend.</p>
               </div>
 
-              {configuration?.custom_css.enabled ? (
+              <div className="flex flex-wrap gap-4">
+                {configuration && (
+                  <>
+                    <div className="bg-white/5 border border-white/10 p-4 rounded-2xl min-w-[140px]">
+                      <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Active Provider</span>
+                      <span className="text-sm font-bold uppercase text-primary">{configuration.active_provider}</span>
+                    </div>
+                    <div className="bg-white/5 border border-white/10 p-4 rounded-2xl min-w-[140px]">
+                      <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Custom UI</span>
+                      <span className={["text-sm font-bold", configuration.custom_css.enabled ? "text-success" : "text-slate-400"].join(" ")}>
+                        {configuration.custom_css.enabled ? "Active" : "None"}
+                      </span>
+                    </div>
+                  </>
+                )}
                 <button
                   type="button"
-                  onClick={() => void onClearCustomCss()}
+                  onClick={onRefresh}
                   disabled={loading}
-                  className="inline-flex items-center gap-2 rounded-full border border-stone-300 bg-white px-4 py-3 text-sm font-semibold text-ink transition hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="btn-primary flex items-center gap-3 px-6"
                 >
-                  <Trash2 className="h-4 w-4" />
-                  Clear custom CSS
+                  {loading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Settings2 className="h-4 w-4" />}
+                  Refresh System
                 </button>
-              ) : null}
-            </div>
-
-            <div className="mt-5 flex flex-wrap items-center gap-4">
-              <label className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-ink px-4 py-3 text-sm font-semibold text-sand transition hover:bg-[#1e2230]">
-                <Upload className="h-4 w-4" />
-                Upload CSS
-                <input
-                  type="file"
-                  accept=".css,text/css"
-                  className="sr-only"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) {
-                      void onUploadCustomCss(file);
-                    }
-                    event.currentTarget.value = "";
-                  }}
-                />
-              </label>
-              <div className="inline-flex items-center gap-2 rounded-full bg-sand px-4 py-2 text-sm text-ink">
-                <Paintbrush2 className="h-4 w-4" />
-                Applied immediately after upload
               </div>
             </div>
-          </CollapsibleSection>
+          </section>
 
-          <CollapsibleSection
-            eyebrow="Section 4"
-            title="Configuration source and restart guidance"
-            description="Use this as the operational note for where the settings live and when backend restarts are needed."
-          >
-            <div className="rounded-[1.5rem] border border-dashed border-stone-300 bg-white/75 p-5 text-sm leading-7 text-steel">
-              Configuration file: {configuration?.source ?? "backend/.env"}
-              <br />
-              Restart required: {configuration?.restart_required ? "yes" : "no"}
-              {configuration?.restart_required ? ", after changing TRANSLATION_PROVIDER or provider credentials." : "."}
+          {error && (
+            <div className="p-4 rounded-2xl bg-danger/10 border border-danger/20 text-danger text-sm font-bold animate-slide-up flex items-center gap-3">
+              <span className="h-6 w-6 rounded-lg bg-danger/10 flex items-center justify-center text-xs">!</span>
+              {error}
             </div>
-          </CollapsibleSection>
+          )}
+
+          {configuration && (
+            <div className="space-y-6">
+              <CollapsibleSection
+                eyebrow="Integration"
+                title="Translation Engine"
+                description="Monitor the active localization pipeline and provider health."
+              >
+                <div className="grid gap-6 lg:grid-cols-3">
+                  {configuration.options.map((option) => {
+                    const active = option.id === configuration.active_provider;
+                    return (
+                      <div
+                        key={option.id}
+                        className={[
+                          "p-6 rounded-[2rem] border transition-all duration-300",
+                          active 
+                            ? "bg-white border-primary shadow-glow ring-4 ring-primary/5" 
+                            : "bg-surface-muted border-ui-outline-soft hover:bg-white hover:shadow-premium"
+                        ].join(" ")}
+                      >
+                        <div className="flex items-center justify-between mb-4">
+                          <h4 className={["font-bold text-lg transition-colors", active ? "text-primary" : "text-ink"].join(" ")}>{option.label}</h4>
+                          <span className={[
+                            "px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider",
+                            option.configured 
+                              ? active ? "bg-primary text-white" : "bg-success/10 text-success"
+                              : "bg-danger/10 text-danger"
+                          ].join(" ")}>
+                            {option.configured ? "Ready" : "Incomplete"}
+                          </span>
+                        </div>
+                        <p className="text-xs text-steel-muted leading-relaxed mb-6">{option.description}</p>
+                        <div className="space-y-2">
+                          <span className="text-[9px] font-bold uppercase text-steel-muted tracking-widest block">Environment Dependencies</span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {option.required_env.map((env) => (
+                              <code key={env} className="text-[10px] bg-white border border-ui-outline-soft px-2 py-0.5 rounded-md text-ink font-mono">{env}</code>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CollapsibleSection>
+
+              <CollapsibleSection
+                eyebrow="Interface"
+                title="Visual Overrides"
+                description="Inject custom CSS to adapt the documentation engine to your workspace theme."
+              >
+                <div className="flex flex-col lg:flex-row gap-8 lg:items-center justify-between">
+                  <div className="flex items-center gap-6">
+                    <div className="h-16 w-16 rounded-2xl bg-surface-muted flex items-center justify-center text-primary border border-ui-outline-soft">
+                      <Paintbrush2 className="h-8 w-8" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-ink block mb-1">
+                        {configuration.custom_css.enabled ? configuration.custom_css.file_name : "Default Theme Active"}
+                      </span>
+                      {configuration.custom_css.updated_at && (
+                        <span className="text-[10px] text-steel-muted block">Last updated: {new Date(configuration.custom_css.updated_at).toLocaleString()}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    {configuration.custom_css.enabled && (
+                      <button
+                        type="button"
+                        onClick={() => void onClearCustomCss()}
+                        className="btn-secondary text-danger border-danger/20 hover:bg-danger/5 hover:text-danger hover:border-danger/40 flex items-center gap-2"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Reset Theme
+                      </button>
+                    )}
+                    <label className="btn-primary cursor-pointer flex items-center gap-2">
+                      <Upload className="h-4 w-4" />
+                      Upload Stylesheet
+                      <input
+                        type="file"
+                        accept=".css,text/css"
+                        className="sr-only"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) void onUploadCustomCss(file);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
+              </CollapsibleSection>
+
+              <CollapsibleSection
+                eyebrow="Operations"
+                title="System Metadata"
+                description="Technical details regarding configuration origin and service lifecycle."
+              >
+                <div className="p-6 rounded-2xl border-2 border-dashed border-ui-outline-soft bg-surface-muted/30 text-xs font-medium text-steel leading-relaxed space-y-2">
+                  <div className="flex gap-4">
+                    <span className="w-40 text-steel-muted uppercase tracking-widest font-bold text-[9px]">Source Manifest</span>
+                    <span className="text-ink font-mono">{configuration.source}</span>
+                  </div>
+                  <div className="flex gap-4">
+                    <span className="w-40 text-steel-muted uppercase tracking-widest font-bold text-[9px]">Cycle Status</span>
+                    <span className={configuration.restart_required ? "text-danger font-bold" : "text-success font-bold"}>
+                      {configuration.restart_required ? "PENDING RESTART" : "SYNCHRONIZED"}
+                    </span>
+                  </div>
+                </div>
+              </CollapsibleSection>
+            </div>
+          )}
         </div>
+
+        <footer className="p-8 border-t border-ui-outline-soft flex justify-end bg-surface-muted/10">
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn-secondary px-8"
+          >
+            Close Settings
+          </button>
+        </footer>
       </div>
     </div>
   );

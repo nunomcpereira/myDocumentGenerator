@@ -12,8 +12,8 @@ export function McpServerSelector({
   mcpCatalog,
   selectedMcpServers,
   onSelectedMcpServersChange,
-  title = "Docker MCP servers for this session",
-  description = "Choose the Docker MCP servers the analyst and translation pipeline should use for this working session. These selections are also saved with the scenario.",
+  title = "Integration Hub",
+  description = "Select Docker MCP servers to extend the AI analyst's capabilities with real-time data and specialized tools.",
 }: McpServerSelectorProps) {
   const unavailableSelectedServers = selectedMcpServers.filter(
     (serverName) => !mcpCatalog?.servers.some((server) => server.name === serverName),
@@ -27,21 +27,29 @@ export function McpServerSelector({
   }
 
   return (
-    <section className="panel-surface rounded-[2rem] border border-white/60 bg-white/75 p-6 shadow-panel">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+    <section className="premium-card rounded-[2rem] p-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-6">
         <div>
-          <p className="text-xs uppercase tracking-[0.24em] text-steel">MCP Context</p>
-          <h2 className="mt-2 font-serif text-2xl text-ink">{title}</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-steel">{description}</p>
+          <div className="inline-flex items-center gap-2 bg-accent/10 px-3 py-1 rounded-full mb-3">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-accent">Capabilities</p>
+          </div>
+          <h2 className="font-headline text-2xl font-bold text-ink mb-2">{title}</h2>
+          <p className="text-sm leading-relaxed text-steel max-w-2xl">{description}</p>
         </div>
-        <div className="text-xs uppercase tracking-[0.2em] text-steel">
-          {mcpCatalog?.available ? `${mcpCatalog.servers.length} available` : "Unavailable"}
+        <div className={[
+          "rounded-xl px-4 py-2 text-xs font-bold border flex items-center gap-2 transition-all shadow-sm",
+          mcpCatalog?.available
+            ? "bg-success/5 text-success border-success/20"
+            : "bg-danger/5 text-danger border-danger/20",
+        ].join(" ")}>
+          <div className={["h-1.5 w-1.5 rounded-full", mcpCatalog?.available ? "bg-success shadow-glow-success animate-pulse" : "bg-danger"].join(" ")} />
+          {mcpCatalog?.available ? "Discovery Active" : "Engine Offline"}
         </div>
       </div>
 
       {mcpCatalog?.available ? (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {mcpCatalog.servers.length === 0 ? <p className="text-sm text-steel">No Docker MCP servers are currently enabled.</p> : null}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {mcpCatalog.servers.length === 0 ? <p className="text-sm text-steel-muted italic py-4">No tool servers discovered in current environment.</p> : null}
           {mcpCatalog.servers.map((server) => {
             const selected = selectedMcpServers.includes(server.name);
             return (
@@ -50,29 +58,32 @@ export function McpServerSelector({
                 type="button"
                 onClick={() => toggleMcpServer(server.name)}
                 className={[
-                  "selection-chip rounded-2xl border px-4 py-3 text-left text-sm transition",
+                  "p-5 rounded-2xl border text-left transition-all duration-300",
                   selected
-                    ? "selection-chip-active border-ink bg-ink text-sand"
-                    : "selection-chip-inactive border-stone-300 bg-white text-ink hover:border-ember",
+                    ? "bg-white border-primary shadow-glow ring-4 ring-primary/5"
+                    : "bg-surface-muted border-ui-outline-soft hover:border-primary/30 hover:bg-white hover:shadow-premium",
                 ].join(" ")}
-                aria-pressed={selected}
               >
-                <span className="block font-semibold">{server.name}</span>
-                {server.description ? <span className="mt-1 block text-xs opacity-80">{server.description}</span> : null}
+                <div className="flex items-center justify-between mb-2">
+                  <span className={["text-sm font-bold transition-colors", selected ? "text-primary" : "text-ink"].join(" ")}>{server.name}</span>
+                  {selected && <div className="h-4 w-4 bg-primary rounded-full flex items-center justify-center text-[8px] text-white">✓</div>}
+                </div>
+                {server.description ? <span className="block text-xs text-steel-muted leading-relaxed line-clamp-2">{server.description}</span> : null}
               </button>
             );
           })}
         </div>
       ) : (
-        <p className="mt-4 text-sm text-steel">
+        <div className="p-6 rounded-2xl bg-danger/5 border border-danger/10 text-danger text-sm font-medium">
           {mcpCatalog?.detail ?? "Docker MCP discovery is currently unavailable from the backend."}
-        </p>
+        </div>
       )}
 
       {unavailableSelectedServers.length > 0 ? (
-        <p className="mt-4 text-sm text-amber-800">
-          Saved selection not currently available: {unavailableSelectedServers.join(", ")}.
-        </p>
+        <div className="mt-6 p-4 rounded-xl bg-warning/10 border border-warning/20 text-warning-dark text-xs font-bold flex items-center gap-2">
+          <span className="shrink-0">⚠️</span>
+          <span>Ghost servers detected: {unavailableSelectedServers.join(", ")}</span>
+        </div>
       ) : null}
     </section>
   );

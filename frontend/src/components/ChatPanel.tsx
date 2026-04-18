@@ -56,148 +56,154 @@ export const ChatPanel = memo(function ChatPanel({
   }
 
   return (
-    <section className="panel-surface flex h-full max-h-[68vh] flex-col overflow-hidden rounded-[2rem] border border-white/70 bg-white/80 p-5 shadow-panel xl:max-h-[74vh]">
-      <div className="mb-3 flex items-center justify-between gap-3">
+    <section className="flex flex-col h-full bg-white rounded-[2rem] border border-ui-outline-soft shadow-premium overflow-hidden">
+      <div className="p-6 border-b border-ui-outline-soft flex items-center justify-between bg-surface-muted/30">
         <div>
-          <p className="text-xs uppercase tracking-[0.24em] text-steel">Interviewing analyst</p>
-          <h2 className="font-serif text-2xl text-ink">Clarify missing requirements</h2>
-          <p className="mt-1 text-sm leading-6 text-steel">
-            Use this space to provide the instructions the analyst should follow while filling out the specification template.
-          </p>
+          <h2 className="font-headline text-lg font-bold text-ink">AI Analyst</h2>
+          <div className="flex items-center gap-1.5">
+            <div className={["h-1.5 w-1.5 rounded-full", llmAvailable ? "bg-success" : "bg-danger"].join(" ")} />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-steel-muted">{llmAvailable ? "Online" : "Offline"}</span>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setSavedPromptsOpen((current) => !current)}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-stone-300 bg-white text-steel transition hover:border-ember hover:text-ink"
-            aria-label={savedPromptsOpen ? "Hide saved prompts" : "Show saved prompts"}
-            title="Check or edit the saved prompt list"
-          >
-            <Pencil className="h-4 w-4" />
-          </button>
-          {!llmAvailable ? (
-            <div className="flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-sm text-amber-700">
-              <TriangleAlert className="h-4 w-4" />
-              <span>LLM offline</span>
-            </div>
-          ) : null}
-        </div>
+        <button
+          type="button"
+          onClick={() => setSavedPromptsOpen((current) => !current)}
+          className={[
+            "h-10 w-10 flex items-center justify-center rounded-xl transition-all border",
+            savedPromptsOpen ? "bg-primary text-white border-primary shadow-glow" : "bg-white text-steel border-ui-outline-soft hover:border-primary/30"
+          ].join(" ")}
+          title="Sequence Editor"
+        >
+          <Pencil className="h-4 w-4" />
+        </button>
       </div>
 
-      {savedPromptsOpen ? (
-        <div className="mb-4 rounded-[1.5rem] border border-stone-200 bg-[#fff8ee] p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-steel">Saved user prompts</p>
-              <p className="mt-1 text-sm leading-6 text-steel">
-                These exact user prompts are stored in order and replayed one after another when you reapply the scenario instructions.
-              </p>
+      <div className="flex-1 overflow-hidden flex flex-col relative">
+        {savedPromptsOpen && (
+          <div className="absolute inset-0 z-20 bg-white/95 backdrop-blur-sm p-6 overflow-y-auto animate-fade-in">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="font-headline font-bold text-ink text-sm">Instruction Sequence</h3>
+              <button
+                type="button"
+                onClick={() => setSavedPromptsOpen(false)}
+                className="text-xs font-bold text-primary hover:underline"
+              >
+                Done
+              </button>
             </div>
-          </div>
-          <div className="mt-3 space-y-3">
-            {promptDrafts.length > 0 ? promptDrafts.map((prompt, index) => (
-              <div key={`saved-prompt-${index}`} className="rounded-[1.25rem] border border-stone-200 bg-white p-3">
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <p className="text-xs uppercase tracking-[0.18em] text-steel">Prompt {index + 1}</p>
-                  <button
-                    type="button"
-                    onClick={() => updatePromptDrafts(promptDrafts.filter((_, itemIndex) => itemIndex !== index))}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-stone-200 text-steel transition hover:border-rose-300 hover:text-rose-700"
-                    aria-label={`Remove prompt ${index + 1}`}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+            
+            <div className="space-y-4 mb-6">
+              {promptDrafts.map((prompt, index) => (
+                <div key={`saved-prompt-${index}`} className="p-4 rounded-2xl bg-surface-muted border border-ui-outline-soft">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-[10px] font-bold uppercase text-steel-muted tracking-widest">Step {index + 1}</span>
+                    <button
+                      type="button"
+                      onClick={() => updatePromptDrafts(promptDrafts.filter((_, i) => i !== index))}
+                      className="text-danger hover:scale-110 transition-transform"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <textarea
+                    value={prompt}
+                    onChange={(event) => {
+                      const next = [...promptDrafts];
+                      next[index] = event.target.value;
+                      updatePromptDrafts(next);
+                    }}
+                    rows={3}
+                    className="w-full bg-white border border-ui-outline-soft rounded-xl p-3 text-xs focus:border-primary outline-none transition-all"
+                  />
                 </div>
-                <textarea
-                  value={prompt}
-                  onChange={(event) => {
-                    const nextDrafts = [...promptDrafts];
-                    nextDrafts[index] = event.target.value;
-                    updatePromptDrafts(nextDrafts);
-                  }}
-                  rows={4}
-                  placeholder="Enter the exact user instruction to replay at this step."
-                  className="min-h-[7rem] w-full resize-y rounded-[1rem] border border-stone-200 bg-white px-4 py-3 text-sm leading-6 outline-none transition focus:border-ember"
-                />
-              </div>
-            )) : (
-              <div className="rounded-[1.25rem] border border-dashed border-stone-200 bg-white/70 px-4 py-5 text-sm text-steel">
-                No saved prompts yet. User messages you send here will accumulate in this list.
-              </div>
-            )}
-          </div>
-          <div className="mt-3 flex flex-wrap justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setPromptDrafts(promptSequence);
-                setSavedPromptsOpen(false);
-              }}
-              className="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-steel transition hover:border-stone-400 hover:text-ink"
-            >
-              Close
-            </button>
-            <button
-              type="button"
-              onClick={() => updatePromptDrafts([...promptDrafts, ""])}
-              className="inline-flex items-center gap-2 rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-steel transition hover:border-ember hover:text-ink"
-            >
-              <Plus className="h-4 w-4" />
-              Add prompt
-            </button>
+              ))}
+              
+              <button
+                type="button"
+                onClick={() => updatePromptDrafts([...promptDrafts, ""])}
+                className="w-full p-4 rounded-2xl border-2 border-dashed border-ui-outline-soft text-steel-muted hover:border-primary/30 hover:text-primary transition-all flex items-center justify-center gap-2 text-xs font-bold"
+              >
+                <Plus className="h-4 w-4" />
+                Add Step
+              </button>
+            </div>
+
             <button
               type="button"
               onClick={() => void handleReplaySavedPrompts()}
-              disabled={busy || promptDrafts.every((item) => !item.trim())}
-              className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-sand transition hover:bg-[#1e2230] disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={busy || promptDrafts.every(p => !p.trim())}
+              className="btn-primary w-full flex items-center justify-center gap-2 text-xs"
             >
-              Replay prompts
+              <Plus className="h-4 w-4 rotate-45" />
+              Replay Full Sequence
             </button>
           </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+          {messages.map((message, index) => (
+            <div
+              key={`${message.role}-${index}`}
+              className={[
+                "flex flex-col max-w-[85%]",
+                message.role === "user" ? "ml-auto items-end" : "items-start"
+              ].join(" ")}
+            >
+              <div
+                className={[
+                  "px-5 py-3 rounded-[1.5rem] text-sm leading-relaxed",
+                  message.role === "user"
+                    ? "bg-primary text-white rounded-tr-none shadow-glow"
+                    : message.role === "assistant"
+                      ? "bg-surface-muted text-ink rounded-tl-none border border-ui-outline-soft"
+                      : "bg-danger/10 text-danger text-xs italic border border-danger/20"
+                ].join(" ")}
+              >
+                {message.content}
+              </div>
+              <span className="text-[9px] font-bold uppercase tracking-widest text-steel-muted mt-2 px-1">
+                {message.role === "user" ? "You" : message.role === "assistant" ? "Analyst" : "System"}
+              </span>
+            </div>
+          ))}
+          {busy && (
+            <div className="flex items-center gap-3 text-primary animate-pulse">
+              <div className="flex gap-1">
+                <div className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" />
+                <div className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce [animation-delay:0.2s]" />
+                <div className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce [animation-delay:0.4s]" />
+              </div>
+              <span className="text-[10px] font-bold uppercase tracking-widest">Processing</span>
+            </div>
+          )}
         </div>
-      ) : null}
 
-      <div className="flex-1 space-y-3 overflow-y-auto pr-2">
-        {messages.map((message, index) => (
-          <article
-            key={`${message.role}-${index}`}
-            className={[
-              "max-w-[92%] rounded-3xl px-4 py-3 text-sm leading-6",
-              message.role === "user"
-                ? "ml-auto bg-ink text-sand"
-                : message.role === "assistant"
-                  ? "bg-sand text-ink"
-                  : "bg-white text-steel",
-            ].join(" ")}
-          >
-            {message.content}
-          </article>
-        ))}
-        {busy ? (
-          <div className="flex items-center gap-2 text-sm text-steel">
-            <LoaderCircle className="h-4 w-4 animate-spin" />
-            <span>Updating draft state</span>
+        <form className="p-4 border-t border-ui-outline-soft bg-surface-muted/30" onSubmit={handleSubmit}>
+          <div className="relative">
+            <textarea
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder="Type your instructions..."
+              rows={3}
+              className="w-full bg-white border border-ui-outline-soft rounded-2xl px-5 py-4 pr-14 text-sm focus:border-primary focus:ring-4 focus:ring-primary/5 outline-none transition-all resize-none shadow-sm"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void handleSubmit(e as any);
+                }
+              }}
+            />
+            <button
+              type="submit"
+              disabled={busy || !draft.trim()}
+              className="absolute right-3 bottom-3 h-10 w-10 flex items-center justify-center rounded-xl bg-primary text-white shadow-glow hover:bg-primary-light active:scale-90 transition-all disabled:opacity-30 disabled:shadow-none"
+            >
+              <SendHorizontal className="h-5 w-5" />
+            </button>
           </div>
-        ) : null}
+          <p className="mt-2 text-[10px] text-steel-muted text-center font-medium">Shift + Enter for new line</p>
+        </form>
       </div>
-
-      <form className="mt-4 flex flex-col gap-3 border-t border-stone-200/80 pt-4" onSubmit={handleSubmit}>
-        <textarea
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          rows={7}
-          placeholder="Provide the instructions that should guide completion of the spec template: scope, constraints, required sections, user roles, edge cases, acceptance criteria, or which section to focus on next."
-          className="min-h-[10.5rem] resize-y rounded-3xl border border-stone-200 bg-white px-4 py-3 text-sm leading-6 outline-none transition focus:border-ember"
-        />
-        <button
-          type="submit"
-          disabled={busy}
-          className="flex h-fit items-center justify-center gap-2 self-end rounded-full bg-ember px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#bc4d2d] disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          <SendHorizontal className="h-4 w-4" />
-          Send
-        </button>
-      </form>
     </section>
   );
 });

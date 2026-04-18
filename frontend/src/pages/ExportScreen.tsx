@@ -1,4 +1,4 @@
-import { Download, FileOutput, LoaderCircle } from "lucide-react";
+import { Download, FileOutput, FileText, Globe2, LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
 
@@ -79,12 +79,12 @@ export function ExportScreen({
   async function handleExport() {
     setBusy(true);
     setError(null);
-    setStatusMessage(`Generating ${exportFormat.toUpperCase()} files for ${selectedLanguages.length} selected language${selectedLanguages.length === 1 ? "" : "s"}.`);
+    setStatusMessage(`Generating ${exportFormat.toUpperCase()} files...`);
     try {
       const response = await exportDocuments(snapshot.sessionId!, selectedLanguages, effectiveOutputFileName, exportFormat, snapshot.mcpServers);
       setGeneratedFiles(response.generated_documents);
       setArchiveReady(true);
-      setStatusMessage(`Archive ready. ${response.generated_documents.length} localized ${response.export_format.toUpperCase()} file${response.generated_documents.length === 1 ? "" : "s"} generated.`);
+      setStatusMessage(`Ready. Generated ${response.generated_documents.length} localized documents.`);
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Export failed.";
       setError(message);
@@ -95,157 +95,175 @@ export function ExportScreen({
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_0.9fr]">
-      <section className="export-panel-surface rounded-[2rem] border border-white/60 bg-white/75 p-8 shadow-panel">
-        <p className="text-xs uppercase tracking-[0.24em] text-steel">Phase 3</p>
-        <h1 className="mt-3 font-serif text-4xl text-ink">Structural translation and localized export</h1>
-        <p className="mt-3 max-w-2xl text-sm leading-7 text-steel">
-          Select the target languages and export format, then generate localized files. The backend renders the current refine draft directly into DOCX or PDF and packages the generated documents in a ZIP archive.
-        </p>
-
-        <div className="mt-8 flex flex-wrap gap-3">
-          {defaultLanguages.map((language) => {
-            const active = selectedLanguages.includes(language);
-            return (
-              <button
-                key={language}
-                type="button"
-                onClick={() => toggleLanguage(language)}
-                className={[
-                  "selection-chip rounded-full border px-4 py-2 text-sm font-medium transition",
-                  active ? "selection-chip-active border-ink bg-ink text-sand" : "selection-chip-inactive border-stone-300 bg-white text-ink hover:border-ember",
-                ].join(" ")}
-                aria-pressed={active}
-                aria-disabled={busy}
-              >
-                {language}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="mt-8">
-          <p className="text-xs uppercase tracking-[0.24em] text-steel">Export format</p>
-          <div className="mt-3 inline-flex rounded-full border border-stone-300 bg-white p-1 shadow-sm">
-            {[
-              { id: "docx", label: "DOCX" },
-              { id: "pdf", label: "PDF" },
-            ].map((option) => {
-              const active = exportFormat === option.id;
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => {
-                    if (!busy) {
-                      onExportFormatChange(option.id as "docx" | "pdf");
-                    }
-                  }}
-                  className={[
-                    "rounded-full px-4 py-2 text-sm font-semibold transition",
-                    active ? "bg-ink text-sand" : "text-steel hover:text-ink",
-                  ].join(" ")}
-                  aria-pressed={active}
-                  aria-disabled={busy}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
+    <div className="grid gap-8 lg:grid-cols-[1fr_0.9fr] animate-fade-in">
+      <section className="premium-card p-10 rounded-[2.5rem]">
+        <div className="mb-10">
+          <div className="inline-flex items-center gap-2 bg-primary/10 px-3 py-1 rounded-full mb-4">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Phase 3</p>
           </div>
-            <p className="mt-3 text-sm leading-6 text-steel">
-              Both DOCX and PDF are generated directly from the current refine draft.
-            </p>
+          <h1 className="font-headline text-4xl font-bold text-ink mb-4 tracking-tight">Export & Localization</h1>
+          <p className="text-steel leading-relaxed">
+            Finalize your documentation by selecting target languages and format. Our localization pipeline ensures structural integrity while adapting content for global audiences.
+          </p>
         </div>
 
-        <label className="mt-8 block">
-          <span className="text-xs uppercase tracking-[0.24em] text-steel">Output filename</span>
-          <input
-            type="text"
-            value={outputFileName}
-            onChange={(event) => {
-              if (!busy) {
-                onOutputFileNameChange(event.target.value);
-              }
-            }}
-            readOnly={busy}
-            placeholder="localized-specification"
-            className="mt-3 w-full rounded-3xl border border-stone-300 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-ember"
-          />
-        </label>
+        <div className="space-y-10">
+          <div>
+            <h3 className="text-sm font-bold text-ink mb-4 flex items-center gap-2">
+              <Globe2 className="h-4 w-4 text-primary" />
+              Target Languages
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              {defaultLanguages.map((language) => {
+                const active = selectedLanguages.includes(language);
+                return (
+                  <button
+                    key={language}
+                    type="button"
+                    onClick={() => toggleLanguage(language)}
+                    className={[
+                      "px-4 py-2 rounded-xl text-xs font-bold transition-all border",
+                      active 
+                        ? "bg-primary text-white border-primary shadow-glow" 
+                        : "bg-white text-steel-muted border-ui-outline-soft hover:border-primary/30 hover:text-ink hover:bg-surface-muted",
+                    ].join(" ")}
+                  >
+                    {language}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
-        <button
-          type="button"
-          onClick={handleExport}
-          disabled={busy || selectedLanguages.length === 0}
-          className="mt-8 inline-flex min-w-[15.5rem] items-center justify-center gap-2 rounded-full bg-moss px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#2f493b] disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          <span className="relative inline-flex h-4 w-4 items-center justify-center">
-            <FileOutput className={["h-4 w-4", busy ? "opacity-0" : "opacity-100"].join(" ")} />
-            <LoaderCircle className={["absolute h-4 w-4 animate-spin", busy ? "opacity-100" : "opacity-0"].join(" ")} />
-          </span>
-          Generate localized archive
-        </button>
+          <div className="grid gap-8 md:grid-cols-2">
+            <div>
+              <h3 className="text-sm font-bold text-ink mb-4">Export Format</h3>
+              <div className="inline-flex p-1 bg-surface-muted rounded-2xl border border-ui-outline-soft">
+                {[
+                  { id: "docx", label: "DOCX" },
+                  { id: "pdf", label: "PDF" },
+                ].map((option) => {
+                  const active = exportFormat === option.id;
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => !busy && onExportFormatChange(option.id as "docx" | "pdf")}
+                      className={[
+                        "px-6 py-2 rounded-xl text-xs font-bold transition-all",
+                        active ? "bg-white text-primary shadow-sm" : "text-steel-muted hover:text-ink",
+                      ].join(" ")}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
-        <div className="mt-4 min-h-[1.75rem] text-sm">
-          {error ? <p className="text-rose-700">{error}</p> : null}
+            <div>
+              <h3 className="text-sm font-bold text-ink mb-4">Output Filename</h3>
+              <input
+                type="text"
+                value={outputFileName}
+                onChange={(event) => !busy && onOutputFileNameChange(event.target.value)}
+                placeholder="localized-specification"
+                className="input-standard !py-2 !text-xs font-medium"
+              />
+            </div>
+          </div>
+
+          <div className="pt-6 border-t border-ui-outline-soft">
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={busy || selectedLanguages.length === 0}
+              className="btn-primary w-full flex items-center justify-center gap-3 !py-4"
+            >
+              {busy ? (
+                <>
+                  <LoaderCircle className="h-5 w-5 animate-spin" />
+                  <span>Generating Localization Package...</span>
+                </>
+              ) : (
+                <>
+                  <FileOutput className="h-5 w-5" />
+                  <span>Generate All Localized Files</span>
+                </>
+              )}
+            </button>
+            {error && <p className="mt-4 text-xs font-bold text-danger text-center animate-slide-up">{error}</p>}
+          </div>
         </div>
       </section>
 
-      <section className="export-panel-surface relative overflow-hidden rounded-[2rem] border border-white/60 bg-[#11131a] p-8 text-sand shadow-panel">
-        <p className="text-xs uppercase tracking-[0.24em] text-sand/60">Artifacts</p>
-        <h2 className="mt-3 font-serif text-3xl">Export package</h2>
-        <div className="mt-6 space-y-4 text-sm leading-7 text-sand/80">
-          <p>{snapshot.template?.file_name}</p>
-          <p>{effectiveOutputFileName}.zip</p>
-          <p>{exportFormat.toUpperCase()} output selected</p>
-          <p>{selectedLanguages.length} target languages selected</p>
-          <p>{generatedFiles.length} localized files generated</p>
+      <section className="premium-card p-10 rounded-[2.5rem] bg-slate-900 text-white shadow-2xl flex flex-col relative overflow-hidden">
+        <div className="absolute top-0 right-0 p-10 opacity-5">
+          <Download className="h-64 w-64 -mr-20 -mt-20" />
         </div>
 
-        <div className="mt-6 min-h-[4.75rem] rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-sand/80">
-          <div className="flex items-start gap-2">
-            {busy ? <LoaderCircle className="mt-0.5 h-4 w-4 animate-spin" /> : <div className="mt-1 h-2.5 w-2.5 rounded-full bg-sand/40" />}
-            <span>{busy ? `${statusMessage} Existing artifacts stay visible until the new export is ready.` : statusMessage}</span>
+        <div className="relative z-10 flex-1 flex flex-col">
+          <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-slate-500 mb-6">Generated Assets</p>
+          <h2 className="font-headline text-3xl font-bold mb-8">Export Package</h2>
+          
+          <div className="grid grid-cols-2 gap-4 mb-8">
+            <div className="p-4 rounded-2xl bg-white/5 border border-white/10">
+              <span className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Languages</span>
+              <span className="text-xl font-bold">{selectedLanguages.length}</span>
+            </div>
+            <div className="p-4 rounded-2xl bg-white/5 border border-white/10">
+              <span className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Format</span>
+              <span className="text-xl font-bold uppercase">{exportFormat}</span>
+            </div>
           </div>
-        </div>
 
-        <div className="mt-8 min-h-[3.5rem] flex flex-wrap gap-3">
-          {archiveReady ? (
+          <div className="mb-8 p-6 rounded-3xl bg-primary/10 border border-primary/20 backdrop-blur-sm">
+            <div className="flex items-center gap-3 text-sm">
+              <div className={[
+                "h-2 w-2 rounded-full",
+                busy ? "bg-primary animate-pulse" : archiveReady ? "bg-success" : "bg-slate-600"
+              ].join(" ")} />
+              <span className="font-medium text-slate-300">{statusMessage}</span>
+            </div>
+          </div>
+
+          {archiveReady && (
             <a
               href={downloadUrl}
-              className="inline-flex items-center gap-2 rounded-full bg-sand px-5 py-3 text-sm font-semibold text-ink transition hover:bg-white"
+              className="btn-primary !bg-white !text-primary hover:!bg-slate-100 mb-8 flex items-center justify-center gap-3 animate-scale-in"
             >
-              <Download className="h-4 w-4" />
-              Download ZIP archive
+              <Download className="h-5 w-5" />
+              Download Localized ZIP Archive
             </a>
-          ) : (
-            <div className="flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm text-sand/60">
-              ZIP archive will appear here when export finishes.
-            </div>
           )}
-        </div>
 
-        <div className="mt-6 min-h-[13rem] rounded-3xl bg-white/5 p-4 text-sm text-sand/80">
-          <p className="text-xs uppercase tracking-[0.24em] text-sand/60">Individual files</p>
-          {hasGeneratedArtifacts ? (
-            <div className="mt-4 space-y-3">
-              {generatedFiles.map((file) => (
-                <a
-                  key={file.file_name}
-                  href={buildSessionFileUrl(file.download_path)}
-                  className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-sand transition hover:bg-white/10"
-                >
-                  <span>{file.language}</span>
-                  <span className="text-sand/60">{file.file_name}</span>
-                </a>
-              ))}
+          <div className="flex-1 overflow-hidden flex flex-col min-h-[300px]">
+            <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 mb-4">Individual Documents</h4>
+            <div className="flex-1 overflow-y-auto pr-2 space-y-2 custom-scrollbar">
+              {hasGeneratedArtifacts ? (
+                generatedFiles.map((file) => (
+                  <a
+                    key={file.file_name}
+                    href={buildSessionFileUrl(file.download_path)}
+                    className="flex items-center justify-between p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="h-8 w-8 rounded-lg bg-white/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                        <FileText className="h-4 w-4" />
+                      </div>
+                      <span className="text-xs font-bold">{file.language}</span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 truncate max-w-[150px]">{file.file_name}</span>
+                  </a>
+                ))
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-white/10 rounded-[2rem] text-slate-600">
+                  <FileOutput className="h-12 w-12 mb-4 opacity-20" />
+                  <p className="text-xs font-medium">Ready for generation</p>
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="mt-4 flex min-h-[9rem] items-center justify-center rounded-2xl border border-dashed border-white/10 bg-white/5 px-4 text-center text-sand/60">
-              Generated localized documents will stay listed here once the export completes.
-            </div>
-          )}
+          </div>
         </div>
       </section>
     </div>
